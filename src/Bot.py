@@ -28,6 +28,7 @@ And then schedule a message to be sent to the user at the specified time using t
 class Bot:
     def __init__(self):
         self.application = ApplicationBuilder().token('6446614126:AAGFL-AP_8BEMRtJ2DUiDR3vR5EWcq-csTI').build()
+        self.event_queue = []
         self.event_assignment_queue = []
         self.to_do_list = []
         self.scheduler = BlockingScheduler()
@@ -85,6 +86,7 @@ class Bot:
             'time': new_event.time,
             'title': new_event.title
         })
+        self.event_queue.append(new_event)
         await self.application.bot.send_message(chat_id=USER_ID, text=f'Reminder for event {new_event.title} at {new_event.time} has been set.')
 
         # Check to see if there are 30 minutes between now and event time.
@@ -137,6 +139,14 @@ class Bot:
             'difference': 1
         })
 
+    async def daily_reminders(self):
+        daily_reminder = "Good morning! Here's your schedule for today: \n"
+        for event in self.event_queue:
+            # Check if event is today
+            if event.time.date() == datetime.datetime.now().date():
+                daily_reminder += f'{event.title} at {event.time}\n'
+        await self.application.bot.send_message(chat_id=USER_ID, text=daily_reminder)
+
 
 
     def run_bot(self):
@@ -152,7 +162,10 @@ class Bot:
         todo_list_handler = CommandHandler('todolist', self.get_to_do_list)
         self.application.add_handler(todo_list_handler)
 
+        # Add daily reminder handler
 
+
+        # Start the bot
         print('Starting bot thread...')
         self.application.run_polling()
 
