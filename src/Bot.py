@@ -18,9 +18,6 @@ logging.basicConfig(
 
 '''
 Create a telegram bot for scheduling events and assignments.
-The bot should be able to take the following commands:
-/addevent <month> <day> <year> <time> <title>
-/addassignment <month> <day> <year> <time> <title> <course>
 And then schedule a message to be sent to the user at the specified time using the apscheduler library.
 '''
 
@@ -33,11 +30,28 @@ class Bot:
         self.to_do_list = []
         self.scheduler = BlockingScheduler()
 
+        # Create a text file to store all the events
+        self.event_file = open('events.txt', 'w+')
+        self.event_file.close()
+
+        # Create a text file to store the to-do list
+        self.to_do_file = open('to_do.txt', 'w+')
+        self.to_do_file.close()
+
     def start_scheduler(self):
         self.scheduler.start()
         print('Scheduler started.')
 
     async def event_message_generator(self, context: telegram.ext.CallbackContext) -> None:
+        # Remove the event from the text file
+        with open("events.txt", "r+") as f:
+            d = f.readlines()
+            f.seek(0)
+            for i in d:
+                if i != f'{context.job.data["event"].title} at {context.job.data["event"].time}\n':
+                    f.write(i)
+            f.truncate()
+
         # Send a message with the telegram bot
         time = context.job.data['time']
         title = context.job.data['title']
@@ -81,12 +95,18 @@ class Bot:
             await self.application.bot.send_message(chat_id=USER_ID, text=f'Event {new_event.title} at {new_event.time} has already passed.')
             return
 
-        # Add the event to the queue
+        # Add the event to the queue and text file
         self.application.job_queue.run_once(self.event_message_generator, time_difference_seconds, data={
+            'event': new_event,
             'time': new_event.time,
             'title': new_event.title
         })
+
         self.event_queue.append(new_event)
+        self.event_file = open('events.txt', 'a')
+        self.event_file.write(f'{new_event.title} at {new_event.time}\n')
+        self.event_file.close()
+
         await self.application.bot.send_message(chat_id=USER_ID, text=f'Reminder for event {new_event.title} at {new_event.time} has been set.')
 
         # Check to see if there are 30 minutes between now and event time.
@@ -138,6 +158,7 @@ class Bot:
             'time_type': 'week',
             'difference': 1
         })
+
 
     async def daily_reminders(self):
         daily_reminder = "Good morning! Here's your schedule for today: \n"
