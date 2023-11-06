@@ -237,7 +237,6 @@ class Bot:
             print('Stopping bot...')
 
 
-if __name__ == '__main__':
-   # lat, lon = city_name_to_lat_long('Providence', 10, 'Rhode Island')
-    print(get_weather('Providence', 'Rhode Island', 10))
+bot = Bot()
+bot.run_bot()
 
