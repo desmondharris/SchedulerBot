@@ -1,20 +1,7 @@
 import datetime
+from Core import *
 
-def time_convert(time_raw: str) -> tuple:
-    time_split = time_raw.split(':')
-    hours = int(time_split[0])
-    mins = int(time_split[1][:2])
-
-    if time_split[1][2:] == 'pm':
-        hours += 12
-
-    return hours, mins
 class Event:
-    '''
-    Take strings of format: /add event October 19 2023 7:00pm Brown Fellows Meeting
-                            ['/addevent, October, 19, 2023, 7:00pm, Brown Fellows Meeting']
-    and convert them to: 2023, 10, 19, (19, 0), 'Brown Fellows Meeting'
-    '''
     def convert_time(self):
             month_to_number = {
                 'January': 1,

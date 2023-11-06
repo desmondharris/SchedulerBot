@@ -3,13 +3,15 @@ import logging
 import telegram
 from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler
-from apscheduler.schedulers.blocking import BlockingScheduler
-import threading
-import asyncio
+import schedule
 import datetime
-from Calendar import Event, Assignment
-import threading
-USER_ID = "1710495555"
+from Calendar import Event
+from Keys import TELEGRAM_API_KEY, TELEGRAM_USER_ID, WEATHER_API_KEY
+import requests, json
+
+
+USER_ID = TELEGRAM_USER_ID
+
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -22,13 +24,47 @@ And then schedule a message to be sent to the user at the specified time using t
 '''
 
 
+'''
+Create a function that converts a string like this:
+Brown at 2023-10-31 20:00:00
+into an event object.
+'''
+def string_to_event(string: str) -> Event:
+    # Split the string into two parts
+    string_parts = string.split(' at ')
+    # Get the title
+    title = string_parts[0]
+    # Get the time
+    time = datetime.datetime.strptime(string_parts[1], '%Y-%m-%d %H:%M:%S')
+    # Create a new event object
+    new_event = Event(title, time)
+    return new_event
+
+
+def city_name_to_lat_long(city_name: str, limit: int, state: str) -> tuple:
+    cities = requests.get(f"http://api.openweathermap.org/geo/1.0/direct?q={city_name}&limit={limit}&appid={WEATHER_API_KEY}").json()
+    for city in cities:
+        if city['state'] == state:
+            return city['lat'], city['lon']
+
+
+def get_weather(city: str, state: str, limit: int) -> str:
+    ret = ""
+    lat, lon = city_name_to_lat_long(city, limit, state)
+    weather = requests.get(f"https://api.openweathermap.org/data/2.5/weather?lat={lat}&lon={lon}&appid={WEATHER_API_KEY}").json()
+    weather = weather['main']
+    weather['temp'] = round(weather['temp']*9/5 - 459.67)
+    weather['feels_like'] = round(weather['feels_like']*9/5 - 459.67)
+    weather['temp_min'] = round(weather['temp_min']*9/5 - 459.67)
+    weather['temp_max'] = round(weather['temp_max']*9/5 - 459.67)
+    return weather
+
 class Bot:
     def __init__(self):
-        self.application = ApplicationBuilder().token('6446614126:AAGFL-AP_8BEMRtJ2DUiDR3vR5EWcq-csTI').build()
+        self.application = ApplicationBuilder().token(TELEGRAM_API_KEY).build()
         self.event_queue = []
         self.event_assignment_queue = []
         self.to_do_list = []
-        self.scheduler = BlockingScheduler()
 
         # Create a text file to store all the events
         self.event_file = open('events.txt', 'w+')
@@ -37,10 +73,6 @@ class Bot:
         # Create a text file to store the to-do list
         self.to_do_file = open('to_do.txt', 'w+')
         self.to_do_file.close()
-
-    def start_scheduler(self):
-        self.scheduler.start()
-        print('Scheduler started.')
 
     async def event_message_generator(self, context: telegram.ext.CallbackContext) -> None:
         # Remove the event from the text file
@@ -160,15 +192,25 @@ class Bot:
         })
 
 
-    async def daily_reminders(self):
-        daily_reminder = "Good morning! Here's your schedule for today: \n"
+    async def daily_reminders(self, context: telegram.ext.CallbackContext):
+        print('Sending daily reminders...')
+        weather_info = get_weather('Louisville', 'Kentucky', 10)
+        daily_reminder = (f"Good morning! The temperature is {weather_info['temp']} and feels like "
+                          f"{weather_info['feels_like']}. The high today is {weather_info['temp_max']}, with a low of "
+                          f"{weather_info['temp_min']}. The humidity is {weather_info['humidity']}.\n")
+
+        daily_reminder += "Here's your schedule for today: \n"
         for event in self.event_queue:
             # Check if event is today
             if event.time.date() == datetime.datetime.now().date():
                 daily_reminder += f'{event.title} at {event.time}\n'
+
+        # Add to do list
+        daily_reminder += "\nHere's your current to do list: \n"
+        for item in self.to_do_list:
+            daily_reminder += f'{item}\n'
+
         await self.application.bot.send_message(chat_id=USER_ID, text=daily_reminder)
-
-
 
     def run_bot(self):
         # Add handlers here
@@ -183,10 +225,19 @@ class Bot:
         todo_list_handler = CommandHandler('todolist', self.get_to_do_list)
         self.application.add_handler(todo_list_handler)
 
-        # Add daily reminder handler
+        # Start the scheduler
+        self.application.job_queue.run_daily(self.daily_reminders, datetime.time(hour=8, minute=0, second=0))
 
 
         # Start the bot
         print('Starting bot thread...')
-        self.application.run_polling()
+        try:
+            self.application.run_polling()
+        except KeyboardInterrupt:
+            print('Stopping bot...')
+
+
+if __name__ == '__main__':
+   # lat, lon = city_name_to_lat_long('Providence', 10, 'Rhode Island')
+    print(get_weather('Providence', 'Rhode Island', 10))
 
