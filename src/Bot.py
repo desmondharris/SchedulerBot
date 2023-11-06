@@ -4,12 +4,14 @@ import telegram
 from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler
 from apscheduler.schedulers.blocking import BlockingScheduler
-import threading
-import asyncio
 import datetime
-from Calendar import Event, Assignment
-import threading
-USER_ID = "1710495555"
+from Calendar import Event
+from Keys import TELEGRAM_API_KEY, TELEGRAM_USER_ID
+import requests, json
+
+
+USER_ID = TELEGRAM_USER_ID
+
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -39,9 +41,11 @@ def string_to_event(string: str) -> Event:
     return new_event
 
 
+def city_name_to_lat_long(city_name: str) -> tuple:
+
 class Bot:
     def __init__(self):
-        self.application = ApplicationBuilder().token('6446614126:AAGFL-AP_8BEMRtJ2DUiDR3vR5EWcq-csTI').build()
+        self.application = ApplicationBuilder().token(TELEGRAM_API_KEY).build()
         self.event_queue = []
         self.event_assignment_queue = []
         self.to_do_list = []
