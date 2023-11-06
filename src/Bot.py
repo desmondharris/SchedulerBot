@@ -22,6 +22,23 @@ And then schedule a message to be sent to the user at the specified time using t
 '''
 
 
+'''
+Create a function that converts a string like this:
+Brown at 2023-10-31 20:00:00
+into an event object.
+'''
+def string_to_event(string: str) -> Event:
+    # Split the string into two parts
+    string_parts = string.split(' at ')
+    # Get the title
+    title = string_parts[0]
+    # Get the time
+    time = datetime.datetime.strptime(string_parts[1], '%Y-%m-%d %H:%M:%S')
+    # Create a new event object
+    new_event = Event(title, time)
+    return new_event
+
+
 class Bot:
     def __init__(self):
         self.application = ApplicationBuilder().token('6446614126:AAGFL-AP_8BEMRtJ2DUiDR3vR5EWcq-csTI').build()
@@ -188,5 +205,10 @@ class Bot:
 
         # Start the bot
         print('Starting bot thread...')
-        self.application.run_polling()
+        try:
+            self.application.run_polling()
+        except KeyboardInterrupt:
+            print('Stopping bot...')
+            self.scheduler.shutdown()
+
 
