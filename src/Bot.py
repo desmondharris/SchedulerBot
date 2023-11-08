@@ -2,9 +2,9 @@ import logging
 
 import telegram
 from telegram import Update
-from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler
+from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, Defaults
 import schedule
-import datetime
+import datetime, pytz
 from Calendar import Event
 from Keys import TELEGRAM_API_KEY, TELEGRAM_USER_ID, WEATHER_API_KEY
 import requests, json
@@ -61,6 +61,7 @@ def get_weather(city: str, state: str, limit: int) -> str:
 
 class Bot:
     def __init__(self):
+        defaults = Defaults(tzinfo=pytz.timezone('US/Eastern'))
         self.application = ApplicationBuilder().token(TELEGRAM_API_KEY).build()
         self.event_queue = []
         self.event_assignment_queue = []
@@ -212,6 +213,14 @@ class Bot:
 
         await self.application.bot.send_message(chat_id=USER_ID, text=daily_reminder)
 
+    async def remove_to_do_item(self, update: Update, context: telegram.ext.CallbackContext):
+        # Get the message, and remove the command at the beginning
+        message = update.message.text[6:]
+        # Remove message from the to do list
+        self.to_do_list.remove(message)
+        # Send a message to the user confirming that the message has been added to the to do list
+        await self.application.bot.send_message(chat_id=USER_ID, text=f'To do item {message} has been removed from the to do list.')
+
     def run_bot(self):
         # Add handlers here
         add_event_handler = CommandHandler('addevent', self.add_event)
@@ -225,6 +234,10 @@ class Bot:
         todo_list_handler = CommandHandler('todolist', self.get_to_do_list)
         self.application.add_handler(todo_list_handler)
 
+        # Remove todo handler
+        remove_todo_handler = CommandHandler('done', self.remove_to_do_item)
+        self.application.add_handler(remove_todo_handler)
+
         # Start the scheduler
         self.application.job_queue.run_daily(self.daily_reminders, datetime.time(hour=8, minute=0, second=0))
 
@@ -237,6 +250,8 @@ class Bot:
             print('Stopping bot...')
 
 
-bot = Bot()
-bot.run_bot()
+lat, long = city_name_to_lat_long('Louisville', 10, 'Kentucky')
+print(lat, long)
+print(get_weather('Louisville', 'Kentucky', 10))
+
 
