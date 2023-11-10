@@ -37,6 +37,7 @@ class PersistentBot:
     def __init__(self):
         # Dummy attributes
         self.user_ids = []
+        self.basic_event_queue = []
 
         self.app = ApplicationBuilder().token(TELEGRAM_API_KEY).defaults(Defaults(tzinfo=pytz.timezone("US/Eastern"))).build()
 
@@ -194,6 +195,8 @@ class PersistentBot:
 
         with open(os.path.join(user_dir, "events.txt"), "a") as f:
             f.write(f"{context.user_data['name']},{context.user_data['time']}\n")
+
+        self.basic_event_queue.append({'name': context.user_data["name"], 'time': context.user_data["time"]})
         return ConversationHandler.END
 
     async def cancel(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
