@@ -2,7 +2,7 @@ import logging
 
 import telegram
 from telegram import Update
-from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, Defaults
+from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, Defaults, ConversationHandler
 import schedule
 import datetime, pytz
 from Calendar import Event
@@ -221,6 +221,10 @@ class Bot:
         # Send a message to the user confirming that the message has been added to the to do list
         await self.application.bot.send_message(chat_id=USER_ID, text=f'To do item {message} has been removed from the to do list.')
 
+    async def add_new(self, update: Update, context: telegram.ext.CallbackContext):
+        pass
+
+
     def run_bot(self):
         # Add handlers here
         add_event_handler = CommandHandler('addevent', self.add_event)
@@ -237,6 +241,11 @@ class Bot:
         # Remove todo handler
         remove_todo_handler = CommandHandler('done', self.remove_to_do_item)
         self.application.add_handler(remove_todo_handler)
+
+        # Add the conversation handler
+        coversation_handler = ConversationHandler(
+            entry_points=[]
+        )
 
         # Start the scheduler
         self.application.job_queue.run_daily(self.daily_reminders, datetime.time(hour=8, minute=0, second=0))
