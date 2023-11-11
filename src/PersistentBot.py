@@ -38,6 +38,7 @@ class PersistentBot:
         # Dummy attributes
         self.user_ids = []
         self.basic_event_queue = []
+        self.recurring_event_queue = []
 
         self.app = ApplicationBuilder().token(TELEGRAM_API_KEY).defaults(Defaults(tzinfo=pytz.timezone("US/Eastern"))).build()
 
@@ -54,18 +55,130 @@ class PersistentBot:
                     MessageHandler(
                         filters.Regex("^Event$"), self.event_get_date
                     ),
+                    MessageHandler(
+                        filters.Regex("^Recurring Event$"), self.reccuring_event_get_frequency
+                    ),
                 ],
                 'event_get_date': [MessageHandler(filters.TEXT, self.event_get_date)],
                 'event_get_time': [MessageHandler(filters.TEXT, self.event_get_time)],
                 'event_get_name': [MessageHandler(filters.TEXT, self.event_get_name)],
                 'event_finish': [MessageHandler(filters.TEXT, self.event_finish)],
-
+                'recurring_event_process_frequency': [MessageHandler(filters.TEXT, self.reccuring_event_process_frequency)],
+                'recurring_event_get_time': [MessageHandler(filters.TEXT, self.reccuring_event_get_time)],
+                'recurring_event_get_name': [MessageHandler(filters.TEXT, self.reccuring_event_get_name)],
+                'recurring_event_finish': [MessageHandler(filters.TEXT, self.reccuring_event_finish)],
             },
             fallbacks=[CommandHandler("cancel", self.cancel)],
         )
         self.app.add_handler(add_handler)
         self.build_from_old()
 
+    def start_bot(self):
+        self.app.run_polling()
+
+    async def reccuring_event_get_frequency(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """
+        Get the date of the event
+        """
+        await update.message.reply_text("How often should the event happen? Enter something like:\n1 days\n2 weeks\n3 months\n(MUST BE PLURAL)")
+        return "recurring_event_process_frequency"
+
+    async def reccuring_event_process_frequency(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+        frequency, time_period = update.message.text.split(' ')
+        frequency = int(frequency)
+        time_period = time_period.lower()
+        context.user_data["frequency"] = frequency
+        context.user_data["time_period"] = time_period
+
+        if time_period == "days":
+            await update.message.reply_text("What day of the week should the event start? (Monday, Tuesday, etc.)")
+            return "recurring_event_get_time"
+        elif time_period == "weeks":
+            await update.message.reply_text("What day(s) of the week should the event occur?\nTo enter multiple days, separate them with a comma and a space (Monday, Tuesday, etc.)")
+        elif time_period == "months":
+            await update.message.reply_text("What day of the month should the event occur? (1, 2, 3, etc.)")
+
+        return "recurring_event_get_time"
+
+    async def reccuring_event_get_time(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        time_period = context.user_data["time_period"]
+        day_to_num = {
+            "monday": 0,
+            "tuesday": 1,
+            "wednesday": 2,
+            "thursday": 3,
+            "friday": 4,
+            "saturday": 5,
+            "sunday": 6
+        }
+
+        if time_period == "days":
+            day = update.message.text.lower()
+            day = day_to_num[day]
+            context.user_data["day"] = day
+        elif time_period == "weeks":
+            days = update.message.text.split(', ')
+            days = [day_to_num[day.lower()] for day in days]
+            context.user_data["days"] = days
+        elif time_period == "months":
+            day = int(update.message.text)
+            context.user_data["day"] = day
+
+        await update.message.reply_text("When is the event? (HH:MM)")
+        return "recurring_event_get_name"
+
+    async def reccuring_event_get_name(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """
+        Get the name of the event
+        """
+        time = update.message.text
+
+        # Create time object
+        time = datetime.datetime.strptime(time, "%H:%M").time()
+        context.user_data["time"] = time
+
+        await update.message.reply_text("What is the name of the event?")
+        return "recurring_event_finish"
+
+    async def reccuring_event_finish(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        name = update.message.text
+        time_period = context.user_data["time_period"]
+        frequency = context.user_data["frequency"]
+
+        if time_period == "days":
+            day = context.user_data["day"]
+            # Create datetime object of next occurence of this day
+            now = datetime.datetime.now()
+            next_day = now + datetime.timedelta(days=(day - now.weekday()) % 7)
+            # Set time of next occurence to the time the user specified
+            next_day = next_day.replace(hour=context.user_data["time"].hour, minute=context.user_data["time"].minute)
+
+            self.app.job_queue.run_repeating(self.send_event, datetime.timedelta(days=frequency), first=next_day, data={
+                'name': name,
+                'time': next_day,
+                'user_id': update.message.chat_id
+            })
+        elif time_period == "weeks":
+            self.app.job_queue.run_daily(self.send_event, context.user_data["time"], days=context.user_data["days"], data={
+                'name': name,
+                'time': context.user_data["time"],
+                'user_id': update.message.chat_id
+            })
+        elif time_period == "months":
+            self.app.job_queue.run_monthly(self.send_event, context.user_data["time"], day=context.user_data["day"], data={
+                'name': name,
+                'time': context.user_data["time"],
+                'user_id': update.message.chat_id
+            })
+
+        # Add event to user's recurring events
+        user_dir = os.path.join(self.user_dir, str(update.message.chat_id))
+        os.mkdir(user_dir) if not os.path.exists(user_dir) else None
+        #TODO: add recurring events to user/user_id/recurring_events.txt
+        with open(os.path.join(user_dir, "recurring_events.txt"), "a") as f:
+            pass
+        return ConversationHandler.END
 
     async def add(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """
@@ -105,6 +218,7 @@ class PersistentBot:
 
         context.user_data["date"] = date
         await update.message.reply_text("When is the event? (HH:MM)")
+
         return "event_get_name"
 
     async def event_get_name(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -121,12 +235,6 @@ class PersistentBot:
 
         await update.message.reply_text("What is the name of the event?")
         return "event_finish"
-
-    async def send_event(self, context: ContextTypes.DEFAULT_TYPE):
-        await self.app.bot.send_message(chat_id=context.job.data["user_id"], text=f"Event: {context.job.data['name']} at {context.job.data['time']}")
-
-    async def send_reminder(self, context: ContextTypes.DEFAULT_TYPE):
-        await self.app.bot.send_message(chat_id=context.job.data["user_id"], text=f"Reminder: {context.job.data['name']} in {context.job.data['in']} at {context.job.data['time']}")
 
     async def event_finish(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """
@@ -193,6 +301,12 @@ class PersistentBot:
 
         self.basic_event_queue.append({'name': context.user_data["name"], 'time': context.user_data["time"]})
         return ConversationHandler.END
+
+    async def send_event(self, context: ContextTypes.DEFAULT_TYPE):
+        await self.app.bot.send_message(chat_id=context.job.data["user_id"], text=f"Event: {context.job.data['name']} at {context.job.data['time']}")
+
+    async def send_reminder(self, context: ContextTypes.DEFAULT_TYPE):
+        await self.app.bot.send_message(chat_id=context.job.data["user_id"], text=f"Reminder: {context.job.data['name']} in {context.job.data['in']} at {context.job.data['time']}")
 
     async def cancel(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """
@@ -266,6 +380,7 @@ class PersistentBot:
                             'user_id': user,
                             'in': "1 week"
                         })
+
 
 
 
