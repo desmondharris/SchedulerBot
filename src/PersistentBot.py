@@ -64,12 +64,8 @@ class PersistentBot:
             fallbacks=[CommandHandler("cancel", self.cancel)],
         )
         self.app.add_handler(add_handler)
+        self.build_from_old()
 
-    def start_bot(self):
-        """
-        Start the bot
-        """
-        self.app.run_polling()
 
     async def add(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """
@@ -86,7 +82,6 @@ class PersistentBot:
 
         await update.message.reply_text("What would you like to add?", reply_markup=keyboard)
         return "switch"
-
 
     async def event_get_date(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """
@@ -213,7 +208,69 @@ class PersistentBot:
         self.user_ids = []
         for user in os.listdir(self.user_dir):
             self.user_ids.append(user)
-            # TODO: read all events, assignments, todos, etc from user/user_id and add them to the bot
+            # TODO: read all assignments, todos, etc from user/user_id and add them to the bot
+
+            # Read all events from user/user_id and add them to the bot
+            with open(os.path.join(self.user_dir, user, "events.txt"), "r") as f:
+                for line in f.readlines():
+                    line = line.split(',')
+                    time = datetime.datetime.strptime(line[1][:len(line[1]) - 1], "%Y-%m-%d %H:%M:%S")
+                    self.basic_event_queue.append({'name': line[0], 'time': time})
+
+                    # Calculate time difference between now and event time
+                    time_diff = time - datetime.datetime.now()
+                    time_diff = time_diff.total_seconds()
+
+                    # Check if event is in the past
+                    if time_diff < 0:
+                        continue
+
+                    self.app.job_queue.run_once(self.send_event, time_diff, data={
+                        'name': line[0],
+                        'time': line[1],
+                        'user_id': user
+                    })
+
+                    # Check if event is 30 minutes or more in the future, and add reminder if it is
+                    if time_diff > 1800:
+                        self.app.job_queue.run_once(self.send_reminder, time_diff - 1800, data={
+                            'name': line[0],
+                            'time': line[1],
+                            'user_id': user,
+                            'in': "30 minutes"
+                        })
+
+                    # Check if event is 2 hours or more in the future, and add reminder if it is
+                    if time_diff > 7200:
+                        self.app.job_queue.run_once(self.send_reminder, time_diff - 7200, data={
+                            'name': line[0],
+                            'time': line[1],
+                            'user_id': user,
+                            'in': "2 hours"
+                        })
+
+                    # Check if event is 1 day or more in the future, and add reminder if it is
+                    if time_diff > 86400:
+                        self.app.job_queue.run_once(self.send_reminder, time_diff - 86400, data={
+                            'name': line[0],
+                            'time': line[1],
+                            'user_id': user,
+                            'in': "1 day"
+                        })
+
+                    # Check if event is 1 week or more in the future, and add reminder if it is
+                    if time_diff > 604800:
+                        self.app.job_queue.run_once(self.send_reminder, time_diff - 604800, data={
+                            'name': line[0],
+                            'time': line[1],
+                            'user_id': user,
+                            'in': "1 week"
+                        })
+
+
+
+
+
 
 
 b = PersistentBot()
