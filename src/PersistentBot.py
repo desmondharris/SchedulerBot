@@ -31,7 +31,8 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
-
+# Turn off logging for HTTP POST requests
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 class PersistentBot:
     def __init__(self):
@@ -251,7 +252,7 @@ class PersistentBot:
 
         # Check if event is in the past
         if time_diff < 0:
-            await update.message.reply_text("Event is in the past. Please try again.")
+            await update.message.reply_text(f"Event is in the past. Please try again.\nTime:{context.user_data['time']}")
             return ConversationHandler.END
 
         self.app.job_queue.run_once(self.send_event, time_diff, data=context.user_data)
