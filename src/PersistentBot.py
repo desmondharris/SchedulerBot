@@ -72,9 +72,11 @@ class PersistentBot:
         split_data = data.split('~')
         match split_data[0]:
             case "NONRECURRINGEVENT":
-                pass
-
+                self.create_nr_event(split_data[1], split_data[2], split_data[3])
         print(data.split('~'))
+
+    def create_nr_event(self, name, date, time):
+        pass
 
 
 b = PersistentBot()
