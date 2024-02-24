@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Event Scheduler</title>
+    <link rel="stylesheet" href="new_event_styles.css">
+</head>
+<body>
+    <div id="app">
+        <header>
+            <h1>Event Scheduler</h1>
+        </header>
+        <main>
+            <form id="eventForm">
+                <div class="input-group">
+                    <label for="eventName">Event Name:</label>
+                    <input type="text" id="eventName" name="eventName" required>
+                </div>
+                <div class="input-group">
+                    <label for="eventDate">Date:</label>
+                    <input type="date" id="eventDate" name="eventDate" required>
+                </div>
+                <div class="input-group">
+                    <label for="eventTime">Time:</label>
+                    <input type="time" id="eventTime" name="eventTime" required>
+                </div>
+                <button type="submit" id="submit">Schedule Event</button>
+            </form>
+        </main>
+    </div>
+     <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="new_event.js"></script>
+</body>
+</html>
