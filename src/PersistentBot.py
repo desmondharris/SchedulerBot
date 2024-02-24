@@ -36,21 +36,12 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 
 class PersistentBot:
     def __init__(self):
-        # Dummy attributes
-        self.user_ids = []
-        self.basic_event_queue = []
-        self.recurring_event_queue = []
-
+        # Create bot
         self.app = ApplicationBuilder().token(TELEGRAM_API_KEY).defaults(Defaults(tzinfo=pytz.timezone("US/Eastern"))).build()
-
-        # Create user directory in cwd
-        self.user_dir = os.path.join(os.getcwd(), "users")
-        os.mkdir(self.user_dir) if not os.path.exists(self.user_dir) else None
 
         # Add and configure handlers
         self.app.add_handler(CommandHandler("start", self.launch_web_ui))
         self.app.add_handler(MessageHandler(filters.StatusUpdate.WEB_APP_DATA, self.web_app_data))
-        #self.build_from_old()
 
     def start_bot(self):
         self.app.run_polling()
@@ -72,11 +63,42 @@ class PersistentBot:
         split_data = data.split('~')
         match split_data[0]:
             case "NONRECURRINGEVENT":
-                self.create_nr_event(split_data[1], split_data[2], split_data[3])
+                self.create_nr_event(split_data[1], datetime.datetime.strptime(' '.join([split_data[2], split_data[3]]), "%Y-%m-%d %H:%M"))
+
         print(data.split('~'))
 
-    def create_nr_event(self, name, date, time):
-        pass
+    def create_nr_event(self, name: str, event_time: datetime.datetime):
+        # Send message at event time
+        self.app.job_queue.run_once(self.event_now, event_time, data={
+            'name': name,
+            'time': event_time,
+            'chat_id': TELEGRAM_USER_ID
+        })
+        # Set reminders
+        # NOTE: apscheduler automatically handles events that are in the past, this could
+        # cause issues in the future?
+        self.event_set_reminder(name, event_time, days=0, hours=0, minutes=15)
+        self.event_set_reminder(name, event_time, days=0, hours=1, minutes=0)
+        self.event_set_reminder(name, event_time, days=0, hours=4, minutes=0)
+        self.event_set_reminder(name, event_time, days=1, hours=0, minutes=0)
+        self.event_set_reminder(name, event_time, days=5, hours=0, minutes=0)
+
+    async def event_now(self, context: ContextTypes.DEFAULT_TYPE):
+        await self.app.bot.send_message(context.job.data['chat_id'], f"Event {context.job.data['name']} is happening now!")
+
+    def event_set_reminder(self, name: str, event_time: datetime.datetime, days=0, hours=0, minutes=0):
+        reminder_time = event_time - datetime.timedelta(days=days, hours=hours, minutes=minutes)
+        if reminder_time < datetime.datetime.now():
+            return
+        self.app.job_queue.run_once(self.event_send_reminder, reminder_time, data={
+            'name': name,
+            'time': event_time,
+            'chat_id': TELEGRAM_USER_ID
+        })
+
+    async def event_send_reminder(self, context: ContextTypes.DEFAULT_TYPE):
+        await self.app.bot.send_message(context.job.data['chat_id'], f"REMINDER: {context.job.data['name']} at {context.job.data['time']}")
+
 
 
 b = PersistentBot()
