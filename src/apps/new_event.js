@@ -7,9 +7,13 @@ document.getElementById('eventForm').onsubmit = function(event) {
     var eventTime = document.getElementById('eventTime').value;
 
     // Here you could send the data to a server or process it further
-    console.log("Event Scheduled:", eventName, eventDate, eventTime);
+    console.log("Event Scheduled:",eventDate, eventTime);
 
-    // Optionally, clear the form or provide feedback to the user
-    alert(`Event "${eventName}" scheduled for ${eventDate} at ${eventTime}.`);
-    this.reset(); // Reset form fields
+    // Select the submit button
+    var submitButton = document.getElementById('submit');
+    submitButton.onclick = function() {
+        window.Telegram.WebApp.sendData(JSON.stringify("NONRECURRINGEVENT~".concat(eventName, "~", eventDate, "~", eventTime)));
+
+    };
+
 };
