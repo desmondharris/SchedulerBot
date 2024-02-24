@@ -72,7 +72,7 @@ class PersistentBot:
             fallbacks=[CommandHandler("cancel", self.cancel)],
         )
         self.app.add_handler(add_handler)
-        self.build_from_old()
+        #self.build_from_old()
 
     def start_bot(self):
         self.app.run_polling()
@@ -177,10 +177,13 @@ class PersistentBot:
         user_dir = os.path.join(self.user_dir, str(update.message.chat_id))
         os.mkdir(user_dir) if not os.path.exists(user_dir) else None
         #TODO: add recurring events to user/user_id/recurring_events.txt
-        with open(os.path.join(user_dir, "recurring_events.txt"), "a") as f:
+        # Create new JSON
+
+        with open(os.path.join(user_dir, f"recurring_events{len(self.recurring_event_queue)}"), "a") as f:
             pass
         return ConversationHandler.END
 
+    # When user types /add, start a conversation
     async def add(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """
         Add an event or assignment to users schedule, or to-do item to to-do list
@@ -201,7 +204,6 @@ class PersistentBot:
         """
         Get the date of the event
         """
-        print("ok")
         await update.message.reply_text("When is the event? (Omit year if this year) (MM/DD/YYYY)")
         return "event_get_time"
 
@@ -252,56 +254,52 @@ class PersistentBot:
 
         # Check if event is in the past
         if time_diff < 0:
-            await update.message.reply_text(f"Event is in the past. Please try again.\nTime:{context.user_data['time']}")
+            await update.message.reply_text("Event is in the past, cannot add.")
             return ConversationHandler.END
 
-        self.app.job_queue.run_once(self.send_event, time_diff, data=context.user_data)
 
-        # Check if event is 30 minutes or more in the future, and add reminder if it is
-        if time_diff > 1800:
-            self.app.job_queue.run_once(self.send_reminder, time_diff - 1800, data={
-                'name': context.user_data["name"],
-                'time': context.user_data["time"],
-                'user_id': context.user_data["user_id"],
-                'in': "30 minutes"
-            })
 
-        # Check if event is 2 hours or more in the future, and add reminder if it is
-        if time_diff > 7200:
-            self.app.job_queue.run_once(self.send_reminder, time_diff - 7200, data={
-                'name': context.user_data["name"],
-                'time': context.user_data["time"],
-                'user_id': context.user_data["user_id"],
-                'in': "2 hours"
-            })
+        # Create new JSON
+        json_data = {
+            "name": name,
+            "time": str(context.user_data["time"]),
+            "user_id": context.user_data["user_id"],
+            "reminders": {
+                "30 minutes": time_diff > 1800,
+                "2 hours": time_diff > 7200,
+                "1 days": time_diff > 86400,
+                "1 weeks": time_diff > 604800
+            }
+        }
+        self.set_event_reminders(json_data)
 
-        # Check if event is 1 day or more in the future, and add reminder if it is
-        if time_diff > 86400:
-            self.app.job_queue.run_once(self.send_reminder, time_diff - 86400, data={
-                'name': context.user_data["name"],
-                'time': context.user_data["time"],
-                'user_id': context.user_data["user_id"],
-                'in': "1 day"
-            })
+        # Add event to user's events folder
+        with open(os.path.join(self.user_dir, str(update.message.chat_id), f"event{context.user_data['name']}{len(self.basic_event_queue)}.json"), "w") as f:
+            json.dump(json_data, f)
+        self.basic_event_queue.append(json_data)
 
-        # Check if event is 1 week or more in the future, and add reminder if it is
-        if time_diff > 604800:
-            self.app.job_queue.run_once(self.send_reminder, time_diff - 604800, data={
-                'name': context.user_data["name"],
-                'time': context.user_data["time"],
-                'user_id': context.user_data["user_id"],
-                'in': "1 week"
-            })
-
-        # Add event to user's events
-        user_dir = os.path.join(self.user_dir, str(update.message.chat_id))
-        os.mkdir(user_dir) if not os.path.exists(user_dir) else None
-
-        with open(os.path.join(user_dir, "events.txt"), "a") as f:
-            f.write(f"{context.user_data['name']},{context.user_data['time']}\n")
-
-        self.basic_event_queue.append({'name': context.user_data["name"], 'time': context.user_data["time"]})
+        # Add event to job queue
+        self.app.job_queue.run_once(self.send_event, context.user_data["time"], data={
+            'name': name,
+            'time': context.user_data["time"],
+            'user_id': update.message.chat_id
+        })
         return ConversationHandler.END
+
+    def set_event_reminders(self, event: dict):
+        for reminder, should_send in event["reminders"].items():
+            if should_send:
+                # Create a datetime object of the time to run the reminder
+                # event["time"] is in the format "30 days", "2 hours", etc.
+                splt_time = reminder.split()
+                kwargs = {splt_time[1]: int(splt_time[0])}
+                time_to_run = datetime.timedelta(**kwargs)
+                self.app.job_queue.run_once(self.send_reminder, time_to_run, data={
+                    'name': event["name"],
+                    'time': event["time"],
+                    'user_id': event["user_id"],
+                    'in': reminder
+                })
 
     async def send_event(self, context: ContextTypes.DEFAULT_TYPE):
         await self.app.bot.send_message(chat_id=context.job.data["user_id"], text=f"Event: {context.job.data['name']} at {context.job.data['time']}")
@@ -381,12 +379,6 @@ class PersistentBot:
                             'user_id': user,
                             'in': "1 week"
                         })
-
-
-
-
-
-
 
 
 b = PersistentBot()
