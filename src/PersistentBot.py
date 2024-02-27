@@ -87,7 +87,7 @@ class PersistentBot:
         # Send message at event time
         self.app.job_queue.run_once(self.event_now, event_time, data={
             'name': name,
-            'time': event_time,
+            'datetime': event_time,
             'chat_id': chat_id
         })
         # Set reminders
@@ -103,6 +103,16 @@ class PersistentBot:
         self.db_insert("events", {"name": name, "datetime": event_time, "user": chat_id})
 
     async def event_now(self, context: ContextTypes.DEFAULT_TYPE):
+        # Remove event from events table
+        curs = self.conn.cursor(buffered=True)
+        u_data = context.job.data
+        # Use parameterized queries to safely pass values
+        query = "DELETE FROM events WHERE user=%s AND datetime=%s AND name=%s"
+        values = (u_data["chat_id"], u_data["datetime"].strftime('%Y-%m-%d %H:%M:%S'), u_data["name"])
+        curs.execute(query, values)
+        self.conn.commit()  # Commit changes
+        curs.close()  # Close cursor
+
         await self.app.bot.send_message(context.job.data['chat_id'], f"Event {context.job.data['name']} is happening now!")
 
     def event_set_reminder(self, chat_id, name: str, event_time: datetime.datetime, days=0, hours=0, minutes=0):
