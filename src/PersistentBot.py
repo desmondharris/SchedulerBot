@@ -1,6 +1,13 @@
 """
-Create a PersistentBot Class that will expand the functionality of the Bot class. It will NOT inherit from the Bot class.
-It will be able to create events, commands, and tasks that will be persistent across multiple sessions.
+TODO:
+- Add daily message
+    -Include weather
+    -Include daily events
+-Add todo list
+-Allow user to choose which reminders they want
+-Add ability to search events table by date+user
+-Add ability to delete events
+-Add ability to see events for specific day, week, month
 """
 import logging
 
@@ -154,9 +161,6 @@ class PersistentBot:
             cursor.execute(query, values)
             self.conn.commit()
             cursor.close()
-
-
-
 
 
 b = PersistentBot()
