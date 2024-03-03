@@ -83,6 +83,8 @@ class PersistentBot:
         await update.message.reply_text("Launching portal...", reply_markup=ReplyKeyboardMarkup(kb))
 
     async def web_app_data(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if DEBUG:
+            print("|---DEBUGGING IN PersistentBot.web_app_data---|")
         data = json.loads(update.message.web_app_data.data)
         await update.message.reply_text("Your data was:")
         await update.message.reply_text(f"{data}")
@@ -91,6 +93,10 @@ class PersistentBot:
             case "NONRECURRINGEVENT":
                                                                  # name           datetime (YYYY-MM-DD HH:MM)
                 self.create_nr_event(update.message.chat_id, split_data[1], datetime.datetime.strptime(' '.join([split_data[2], split_data[3]]), "%Y-%m-%d %H:%M"))
+            case "RECURRINGEVENT":
+                if DEBUG:
+                    print(split_data[1:])
+
 
     async def cancel(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         pass
