@@ -14,6 +14,7 @@ import logging
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, WebAppInfo
 from telegram.ext import (
     ApplicationBuilder,
+    ConversationHandler,
     ContextTypes,
     CommandHandler,
     Defaults,
@@ -29,14 +30,14 @@ import json
 
 from Keys import TELEGRAM_API_KEY, TELEGRAM_USER_ID, WEATHER_API_KEY
 from Keys import MYSQL_USER, MYSQL_PASSWORD
-
+DEBUG = 1
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
 # Turn off logging for HTTP POST requests
 logging.getLogger("httpx").setLevel(logging.WARNING)
-
+START, GET_ZIP, WEBAPP = range(3)
 
 class PersistentBot:
     def __init__(self):
@@ -50,35 +51,36 @@ class PersistentBot:
             database='telegram'
         )
 
-        # Add and configure handlers
-        self.app.add_handler(CommandHandler("start", self.launch_web_ui))
+        # Define states
+        self.app.add_handler(CommandHandler("start", self.start))
         self.app.add_handler(MessageHandler(filters.StatusUpdate.WEB_APP_DATA, self.web_app_data))
+        self.app.add_handler(CommandHandler("dailymsg", self.send_daily_message))
 
     def start_bot(self):
         self.app.run_polling()
 
+    async def get_zip(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        pass
+
+    async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        # Check if user is in database
+        user_chat_id = update.message.chat_id
+        if not self.user_in_db(user_chat_id):
+            self.db_insert("users", {"chatid": user_chat_id})
+            await self.app.bot.send_message(chat_id=update.message.chat_id, text="Welcome to the bot!")
+            await self.app.bot.send_message(chat_id=update.message.chat_id,text="To get weather data, I need to know your ZIP code. To enter it, type /zip at anytime")
+            await self.app.bot.send_message(chat_id=update.message.chat_id, text="A ZIP code is not required")
+        await self.launch_web_ui(update, context)
+
     async def launch_web_ui(self, update: Update, callback: ContextTypes.DEFAULT_TYPE):
-
-        # Add user to database
-        cursor = self.conn.cursor(buffered=True)
-        cursor.execute("SELECT * FROM users WHERE chatid=%s", (update.message.chat_id,))
-        user_exists = cursor.fetchone()
-
-        if not user_exists:
-            query = "INSERT INTO users (chatid) VALUES (%s) ON DUPLICATE KEY UPDATE chatid=chatid;"
-            values = (update.message.chat_id,)
-            cursor.execute(query, values)
-        self.conn.commit()
-        cursor.close()
-
-        # display our web-app!
+        # Display launch page
         kb = [
             [KeyboardButton(
                 "Go to bot portal",
-                web_app=WebAppInfo("https://related-currently-maggot.ngrok-free.app")
+                web_app=WebAppInfo("https://regularly-unbiased-stud.ngrok-free.app")
             )]
         ]
-        await update.message.reply_text("Let's do this...", reply_markup=ReplyKeyboardMarkup(kb))
+        await update.message.reply_text("Launching portal...", reply_markup=ReplyKeyboardMarkup(kb))
 
     async def web_app_data(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         data = json.loads(update.message.web_app_data.data)
@@ -87,8 +89,11 @@ class PersistentBot:
         split_data = data.split('~')
         match split_data[0]:
             case "NONRECURRINGEVENT":
-                                                                 #name           datetime (YYYY-MM-DD HH:MM)
+                                                                 # name           datetime (YYYY-MM-DD HH:MM)
                 self.create_nr_event(update.message.chat_id, split_data[1], datetime.datetime.strptime(' '.join([split_data[2], split_data[3]]), "%Y-%m-%d %H:%M"))
+
+    async def cancel(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        pass
 
     def create_nr_event(self, chat_id, name: str, event_time: datetime.datetime):
         # Send message at event time
@@ -123,6 +128,7 @@ class PersistentBot:
         await self.app.bot.send_message(context.job.data['chat_id'], f"Event {context.job.data['name']} is happening now!")
 
     def event_set_reminder(self, chat_id, name: str, event_time: datetime.datetime, days=0, hours=0, minutes=0):
+        # Use timedelta to avoid dictionary mess
         reminder_time = event_time - datetime.timedelta(days=days, hours=hours, minutes=minutes)
         if reminder_time < datetime.datetime.now():
             return
@@ -161,6 +167,52 @@ class PersistentBot:
             cursor.execute(query, values)
             self.conn.commit()
             cursor.close()
+
+    def get_events_on(self, chat_id, date: datetime.date):
+        cursor = self.conn.cursor(buffered=True)
+        query = f'SELECT * FROM events WHERE user=%s AND datetime LIKE %s'
+        values = (chat_id, f"{date.__str__().split()[0]}%")
+        cursor.execute(query, values)
+        return cursor.fetchall()
+
+    def get_events_between(self, chat_id, start: datetime.date, end: datetime.date):
+        cursor = self.conn.cursor(buffered=True)
+        query = f'SELECT * FROM events WHERE user=%s AND datetime BETWEEN %s AND %s'
+        values = (chat_id, start, end)
+        cursor.execute(query, values)
+        return cursor.fetchall()
+
+    def user_in_db(self, chat_id):
+        cursor = self.conn.cursor(buffered=True)
+        query = "SELECT * FROM users WHERE chatid=%s"
+        values = (chat_id,)
+        cursor.execute(query, values)
+        return cursor.fetchone() is not None
+
+    def daily_message(self, chatid):
+        if DEBUG:
+            print("|---DEBUGGING IN PersistentBot.daily_message----|")
+        msg = ""
+        # Open database connection
+        cursor = self.conn.cursor(buffered=True)
+        # Get events for today
+        events = self.get_events_on(chatid, datetime.date.today())
+
+        msg += "Today's events:\n"
+        for idx, event in enumerate(events):
+            _, _1, event_name, event_time = event
+            # get time from datetime object and convert to 12 hour time
+            event_time = event_time.strftime('%I:%M %p')
+            msg += f"[{idx+1}]:  {event_name} at {event_time}\n"
+            if DEBUG:
+                print(f"Event name: {event_name}, Event time: {event_time}")
+        # Close cursor
+        cursor.close()
+        msg += f"{datetime.datetime.now().strftime('%A, %B %d')}\n"
+        return msg
+
+    async def send_daily_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        await self.app.bot.send_message(chat_id=update.message.chat_id, text=self.daily_message(update.message.chat_id))
 
 
 b = PersistentBot()
