@@ -5,8 +5,6 @@ TODO:
     -Include daily events
 -Add todo list
 -Allow user to choose which reminders they want
--Add ability to search events table by date+user
--Add ability to delete events
 -Add ability to see events for specific day, week, month
 """
 import logging
@@ -37,7 +35,8 @@ logging.basicConfig(
 )
 # Turn off logging for HTTP POST requests
 logging.getLogger("httpx").setLevel(logging.WARNING)
-START, GET_ZIP, WEBAPP = range(3)
+START, GET_ZIP, WEBAPP, GETZIP= range(4)
+
 
 class PersistentBot:
     def __init__(self):
@@ -55,12 +54,48 @@ class PersistentBot:
         self.app.add_handler(CommandHandler("start", self.start))
         self.app.add_handler(MessageHandler(filters.StatusUpdate.WEB_APP_DATA, self.web_app_data))
         self.app.add_handler(CommandHandler("dailymsg", self.send_daily_message))
+        self.app.add_handler(CommandHandler("new", self.launch_web_ui))
+        self.app.add_handler(CommandHandler("removezip", self.remove_zip))
+
+        # Add conversation handler to get zip code
+        zip_handler = ConversationHandler(
+            entry_points=[CommandHandler("zip", self.zip)],
+            states={
+                GETZIP: [MessageHandler(filters.TEXT, self.get_zip)],
+            },
+            fallbacks=[CommandHandler("cancel", self.cancel)]
+        )
+        self.app.add_handler(zip_handler)
 
     def start_bot(self):
         self.app.run_polling()
 
+    async def zip(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        await update.message.reply_text("Enter your ZIP code: ")
+        return GETZIP
+
     async def get_zip(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        pass
+        zip_code = update.message.text
+
+        # Verify that the zip code is valid
+        try:
+            int(zip_code)
+        except ValueError:
+            raise ValueError("ZIP code must be an valid integer")
+        if len(zip_code) != 5:
+            await update.message.reply_text("Invalid ZIP code, please try again")
+            return GETZIP
+
+        # Add zip code to database
+        cursor = self.conn.cursor(buffered=True)
+        query = "UPDATE users SET zip=%s WHERE chatid=%s"
+        values = (zip_code, update.message.chat_id)
+        cursor.execute(query, values)
+        self.conn.commit()
+        cursor.close()
+
+        await self.app.bot.send_message(text=f"ZIP code {zip_code} has been added to your profile! Weather data will now be added to your daily message", chat_id=update.message.chat_id)
+        return ConversationHandler.END
 
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Check if user is in database
@@ -70,7 +105,6 @@ class PersistentBot:
             await self.app.bot.send_message(chat_id=update.message.chat_id, text="Welcome to the bot!")
             await self.app.bot.send_message(chat_id=update.message.chat_id,text="To get weather data, I need to know your ZIP code. To enter it, type /zip at anytime")
             await self.app.bot.send_message(chat_id=update.message.chat_id, text="A ZIP code is not required")
-        await self.launch_web_ui(update, context)
 
     async def launch_web_ui(self, update: Update, callback: ContextTypes.DEFAULT_TYPE):
         # Display launch page
@@ -96,7 +130,6 @@ class PersistentBot:
             case "RECURRINGEVENT":
                 if DEBUG:
                     print(split_data[1:])
-
 
     async def cancel(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         pass
@@ -220,6 +253,16 @@ class PersistentBot:
     async def send_daily_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         await self.app.bot.send_message(chat_id=update.message.chat_id, text=self.daily_message(update.message.chat_id))
 
+    async def remove_zip(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        cursor = self.conn.cursor(buffered=True)
+        query = "UPDATE users SET zip=NULL WHERE chatid=%s"
+        values = (update.message.chat_id,)
+        cursor.execute(query, values)
+        self.conn.commit()
+        cursor.close()
+        await self.app.bot.send_message(chat_id=update.message.chat_id, text="Your ZIP code has been removed from your profile.")
+
 
 b = PersistentBot()
 b.start_bot()
+``
