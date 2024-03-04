@@ -9,7 +9,7 @@ TODO:
 """
 import logging
 
-from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, WebAppInfo
+from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, WebAppInfo, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
     ConversationHandler,
@@ -28,6 +28,7 @@ import json
 
 from Keys import TELEGRAM_API_KEY, TELEGRAM_USER_ID, WEATHER_API_KEY
 from Keys import MYSQL_USER, MYSQL_PASSWORD
+from Keys import PORTAL_URL
 DEBUG = 1
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -56,6 +57,7 @@ class PersistentBot:
         self.app.add_handler(CommandHandler("dailymsg", self.send_daily_message))
         self.app.add_handler(CommandHandler("new", self.launch_web_ui))
         self.app.add_handler(CommandHandler("removezip", self.remove_zip))
+        self.app.add_handler(CommandHandler("timezone", self.tz_link))
 
         # Add conversation handler to get zip code
         zip_handler = ConversationHandler(
@@ -111,7 +113,7 @@ class PersistentBot:
         kb = [
             [KeyboardButton(
                 "Go to bot portal",
-                web_app=WebAppInfo("https://regularly-unbiased-stud.ngrok-free.app")
+                web_app=WebAppInfo(PORTAL_URL)
             )]
         ]
         await update.message.reply_text("Launching portal...", reply_markup=ReplyKeyboardMarkup(kb))
@@ -124,6 +126,10 @@ class PersistentBot:
         await update.message.reply_text(f"{data}")
         split_data = data.split('~')
         match split_data[0]:
+            case "TIMEZONE":
+                if DEBUG:
+                    print(split_data[1])
+
             case "NONRECURRINGEVENT":
                                                                  # name           datetime (YYYY-MM-DD HH:MM)
                 self.create_nr_event(update.message.chat_id, split_data[1], datetime.datetime.strptime(' '.join([split_data[2], split_data[3]]), "%Y-%m-%d %H:%M"))
@@ -221,6 +227,22 @@ class PersistentBot:
         cursor.execute(query, values)
         return cursor.fetchall()
 
+    def get_recurring_events_day(self, chat_id, day: str):
+        cursor = self.conn.cursor(buffered=True)
+        query = f"SELECT * FROM recurringevents WHERE user=%s AND recurrence LIKE %s"
+        values = (chat_id, f"DAILY:%")
+
+    def get_recurring_events_week(self, chat_id, day: str):
+        if day not in ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]:
+            raise ValueError(f"Invalid day {day}")
+
+
+        cursor = self.conn.cursor(buffered=True)
+        query = f"SELECT * FROM recurringevents WHERE user=%s AND recurrence LIKE %s"
+        values = (chat_id, f"WEEKLY:{day}")
+        cursor.execute(query, values)
+        return cursor.fetchall()
+
     def user_in_db(self, chat_id):
         cursor = self.conn.cursor(buffered=True)
         query = "SELECT * FROM users WHERE chatid=%s"
@@ -262,7 +284,12 @@ class PersistentBot:
         cursor.close()
         await self.app.bot.send_message(chat_id=update.message.chat_id, text="Your ZIP code has been removed from your profile.")
 
+    async def tz_link(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("Go to bot portal", url=f"{PORTAL_URL}/timeZoneFetch.html")]
+        ])
+        await update.message.reply_text("To change your timezone, go to the bot portal and click on the 'Timezone' button", reply_markup=kb)
+
 
 b = PersistentBot()
 b.start_bot()
-``
