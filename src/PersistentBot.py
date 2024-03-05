@@ -36,7 +36,9 @@ logging.basicConfig(
 )
 # Turn off logging for HTTP POST requests
 logging.getLogger("httpx").setLevel(logging.WARNING)
-START, GET_ZIP, WEBAPP, GETZIP= range(4)
+
+START, GET_ZIP, WEBAPP, GETZIP = range(4)
+
 
 
 class PersistentBot:
@@ -57,7 +59,7 @@ class PersistentBot:
         self.app.add_handler(CommandHandler("dailymsg", self.send_daily_message))
         self.app.add_handler(CommandHandler("new", self.launch_web_ui))
         self.app.add_handler(CommandHandler("removezip", self.remove_zip))
-        self.app.add_handler(CommandHandler("timezone", self.tz_link))
+        self.app.add_handler(CommandHandler("todo", self.todo))
 
         # Add conversation handler to get zip code
         zip_handler = ConversationHandler(
@@ -67,7 +69,7 @@ class PersistentBot:
             },
             fallbacks=[CommandHandler("cancel", self.cancel)]
         )
-        self.app.add_handler(zip_handler)
+
 
     def start_bot(self):
         self.app.run_polling()
@@ -78,7 +80,6 @@ class PersistentBot:
 
     async def get_zip(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         zip_code = update.message.text
-
         # Verify that the zip code is valid
         try:
             int(zip_code)
@@ -133,6 +134,7 @@ class PersistentBot:
             case "NONRECURRINGEVENT":
                                                                  # name           datetime (YYYY-MM-DD HH:MM)
                 self.create_nr_event(update.message.chat_id, split_data[1], datetime.datetime.strptime(' '.join([split_data[2], split_data[3]]), "%Y-%m-%d %H:%M"))
+
             case "RECURRINGEVENT":
                 if DEBUG:
                     print(split_data[1:])
@@ -186,32 +188,34 @@ class PersistentBot:
     async def event_send_reminder(self, context: ContextTypes.DEFAULT_TYPE):
         await self.app.bot.send_message(context.job.data['chat_id'], f"REMINDER: {context.job.data['name']} at {context.job.data['time']}")
 
+    def create_r_event(self, chat_id, name: str, time: datetime.datetime, freq: str, day:str = None):
+        self.db_insert("recurringevents", data=None)
+
     def db_insert(self, table, data: dict):
         """
         table: str
         data: dict
         data is a dict that will contain the data to be inserted into the table
         """
+        query = ""
+        values = ""
         cursor = self.conn.cursor(buffered=True)
         # Insert data into table
         if table == "users":
             query = "INSERT INTO users (chatid) VALUES (%s)"
-
-            # verify that data is an integer
-            if type(data["chatid"]) is not int:
-                raise ValueError(f"Table 'users' cannot have non integer chatid (got type {type(data['chatid'])})")
-
             values = (data['chatid'],)
-            cursor.execute(query, values)
-            self.conn.commit()
-            cursor.close()
-
         elif table == "events":
             query = "INSERT INTO events(user, name, datetime) VALUES (%s, %s, %s)"
             values = (data['user'], data['name'], data['datetime'],)
-            cursor.execute(query, values)
-            self.conn.commit()
-            cursor.close()
+        elif table == "recurringevents":
+            query = "INSERT INTO recurringevents(user, name, recurrence, time) VALUES (%s, %s, %s, %s)"
+            values = (data["user"], data["name"], data["recurrence"], data["time"])
+        if not query:
+            raise ValueError(f"Cannot insert into table {table}")
+
+        cursor.execute(query, values)
+        self.conn.commit()
+        cursor.close()
 
     def get_events_on(self, chat_id, date: datetime.date):
         cursor = self.conn.cursor(buffered=True)
@@ -235,7 +239,6 @@ class PersistentBot:
     def get_recurring_events_week(self, chat_id, day: str):
         if day not in ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]:
             raise ValueError(f"Invalid day {day}")
-
 
         cursor = self.conn.cursor(buffered=True)
         query = f"SELECT * FROM recurringevents WHERE user=%s AND recurrence LIKE %s"
@@ -289,6 +292,19 @@ class PersistentBot:
             [InlineKeyboardButton("Go to bot portal", url=f"{PORTAL_URL}/timeZoneFetch.html")]
         ])
         await update.message.reply_text("To change your timezone, go to the bot portal and click on the 'Timezone' button", reply_markup=kb)
+
+    async def todo(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        # Fetch user's to-do items
+        cursor = self.conn.cursor(buffered=True)
+        query = "SELECT * FROM todoitems WHERE user=%s"
+        values = (update.message.chat_id,)
+        cursor.execute(query, values)
+        items = cursor.fetchall()
+        cursor.close()
+        if DEBUG:
+            print(items)
+        for item in items:
+            _, _, item = item
 
 
 b = PersistentBot()
