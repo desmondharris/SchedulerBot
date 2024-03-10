@@ -1,5 +1,7 @@
 *.pyc
 *.exe
+.idea
+__pycache__
 
 Keys.py
-Scratch.py
+src/Scratch.py
