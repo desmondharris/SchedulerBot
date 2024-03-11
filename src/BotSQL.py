@@ -19,8 +19,7 @@ class BotSQL:
             # todo: log connection and error
         except mysql.connector.Error as e:
             # todo: add logging so this dumb block can be fixed
-            print(e)
-            raise e
+            logger.error(f"Connection error {e.msg}")
 
         self.cursor = self.conn.cursor(buffered=True)
 
@@ -62,7 +61,6 @@ class BotSQL:
             return results
         else:
             logger.error(f"SQLFetchError: Error fetching or executing select with query {query} and values {[val for val in values]}")
-            raise mysql.connector.Error(f"Error fetching or executing select with query {query} and values {[val for val in values]}")
 
     def fetchone(self, query=None, values=None):
         results = self.cursor.fetchone()
@@ -70,7 +68,6 @@ class BotSQL:
             return results
         else:
             logger.error(f"SQLFetchError: Error fetching or executing select with query {query} and values {[val for val in values]}")
-            raise mysql.connector.Error(f"Error fetching or executing select with query {query} and values {[val for val in values]}")
 
     def insert_zip(self, chatid: int, zip: int):
         query = "UPDATE users SET zip=%s WHERE chatid=%s"
