@@ -6,7 +6,12 @@ TODO:
     -Include daily events
 -Add ability to see events for specific day, week, month
 
+Shortlist:
+- Send reminder info as part of jsonified string
+- Handle reminder info in WebApp update function
+
 """
+import atexit
 import logging
 
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, WebAppInfo, InlineKeyboardButton, InlineKeyboardMarkup
@@ -29,7 +34,15 @@ from Keys import TELEGRAM_API_KEY
 from Keys import PORTAL_URL
 from BotSQL import BotSQL
 
+from pydevd_pycharm import settrace
+settrace('localhost', port=9412, stdoutToServer=True, stderrToServer=True)
 DEBUG = 1
+
+
+@atexit.register
+def cleanup():
+    pass
+
 
 # logging setup
 logging.basicConfig(filename="Bot.log", filemode='w', level=logging.ERROR,
@@ -127,22 +140,17 @@ class PersistentBot:
     async def web_app_data(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if DEBUG:
             print("|---DEBUGGING IN PersistentBot.web_app_data---|")
-        data = json.loads(update.message.web_app_data.data)
+        webapp_data = json.loads(update.message.web_app_data.data)
         await update.message.reply_text("Your data was:")
-        await update.message.reply_text(f"{data}")
-        split_data = data.split('~')
+        await update.message.reply_text(f"{webapp_data}")
         if DEBUG:
-            print(split_data[1:])
+            print(webapp_data)
 
-        match split_data[0]:
-            case "TIMEZONE":
-                if DEBUG:
-                    print(split_data[1])
-
+        match webapp_data["type"]:
             case "NONRECURRINGEVENT":
                 data = {
-                    'name': split_data[1],
-                    'datetime': datetime.datetime.strptime(' '.join([split_data[2], split_data[3]]), "%Y-%m-%d %H:%M"),
+                    'name': webapp_data["name"],
+                    'datetime': datetime.datetime.strptime(webapp_data["datetime"], "%Y-%m-%d %H:%M"),
                     'chat_id': update.message.chat_id,
                 }
                 if self.create_nr_event(data):
@@ -153,9 +161,9 @@ class PersistentBot:
 
             case "RECURRINGEVENT":
                 data = {
-                    "name": split_data[1],
-                    "recurrence": f"{split_data[2]}:{split_data[3]}",
-                    "time": split_data[4],
+                    "name": webapp_data["name"],
+                    "recurrence": webapp_data["frequency"],
+                    "time": webapp_data["time"],
                     "user": update.message.chat_id,
                 }
                 if self.bot_sql.insert("recurringevents", data=data):
