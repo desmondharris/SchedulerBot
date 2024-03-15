@@ -16,10 +16,9 @@ class BotSQL:
         }
         try:
             self.conn = mysql.connector.connect(**config)
-            # todo: log connection and error
+            logger.info("MySQL database connected")
         except mysql.connector.Error as e:
-            # todo: add logging so this dumb block can be fixed
-            logger.error(f"Connection error {e.msg}")
+            logger.error(f"MySQL connection error {e.msg}")
 
         self.cursor = self.conn.cursor(buffered=True)
 
@@ -30,7 +29,7 @@ class BotSQL:
                 self.conn.commit()
             return True
         except mysql.connector.Error:
-            # todo: log connection errors
+            logger.error(f"MySQL error executing: \n{query} <- {values}")
             return False
 
     def insert(self, table: str, data: dict):
