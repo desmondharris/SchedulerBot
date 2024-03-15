@@ -1,18 +1,17 @@
 """
 TODO:
--Allow user to choose which reminders they want
-- Add daily message
-    -Include weather
-    -Include daily events
--Add ability to see events for specific day, week, month
+1. Write Unit Tests
+2. Create responsive to do list
+    -https://github.com/devforth/tobedo/tree/master?tab=readme-ov-file
+3. Allow users to delete events
+    - query for all users events, include event id
+    - use todolist structure, set onclick actions to add event id to a list
+    - delete events, reminders
+4. Migrate project to WSL
+    - Include bash and ps scripts
 
-Shortlist:
-- Send reminder info as part of jsonified string
-- Handle reminder info in WebApp update function
 
 """
-import atexit
-import logging
 
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, WebAppInfo, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -25,28 +24,57 @@ from telegram.ext import (
     filters,
 )
 
+import sys
 import datetime
 import pytz
-
 import json
+import atexit
+import logging
+from subprocess import run
 
 from Keys import TELEGRAM_API_KEY
 from Keys import PORTAL_URL
 from BotSQL import BotSQL
 
 from pydevd_pycharm import settrace
-settrace('localhost', port=9412, stdoutToServer=True, stderrToServer=True)
-DEBUG = 1
+
+DEBUG = int(sys.argv[1])
+# Connect to pychharm debug server
+if DEBUG:
+    settrace('localhost', port=51858, stdoutToServer=True, stderrToServer=True)
 
 
 @atexit.register
 def cleanup():
-    pass
+    # End processes for web app
+    for script in ["ngrok.exe", "python -m http.server"]:
+        ps_command = f"""
+        Get-CimInstance Win32_Process | 
+        Where-Object {{ $_.CommandLine -like '*{script}*' }} | 
+        ForEach-Object {{ Stop-Process -Id $_.ProcessId }}
+        """
+    result = run(["powershell", "-Command", ps_command], capture_output=True, text=True)
+
+    # Check if the command was successful
+    if result.returncode == 0:
+        msg = "Exit cmd executed. Output:\n"
+        if result.stdout:
+            logger.info(msg + result.stdout)
+        if result.stderr:
+            logger.warning(msg + result.stderr)
+    else:
+        if result.stderr:
+            logger.error(f"Exit cmd failed to execute. Output:\n {result.stderr}")
 
 
 # logging setup
-logging.basicConfig(filename="Bot.log", filemode='w', level=logging.ERROR,
-                    format="%(name)s :[ %(asctime)s ] %(levelname)s message near line %(lineno)d in %(funcName)s --> %(filename)s \n%(message)s\n")
+logging.basicConfig(level=logging.ERROR,
+                    format="%(name)s :[ %(asctime)s ] %(levelname)s message near line %(lineno)d in %(funcName)s --> %(filename)s \n%(message)s\n",
+                    handlers=[
+                        # Save logs to file and print to stdout
+                        logging.FileHandler("Bot.log", mode='w'),
+                        logging.StreamHandler(sys.stdout)
+                    ])
 logger = logging.getLogger("Bot")
 logger.setLevel(logging.DEBUG)
 
@@ -112,7 +140,7 @@ class PersistentBot:
                 chat_id=update.message.chat_id)
             logger.info(f"ZIP code added for user {update.message.chat_id}")
         except ValueError:
-            logger.error(f"Python Value Error: ZIP code {zip_code} could not be inserted for user {update.message.chat_id}")
+            logger.error(f"Value Error: ZIP code {zip_code} could not be inserted for user {update.message.chat_id}")
             await self.app.bot.send_message(update.message.chat_id, text="Your ZIP is not an integer and could not be added. Please type /zip to try again")
 
         return ConversationHandler.END
@@ -149,25 +177,26 @@ class PersistentBot:
         match webapp_data["type"]:
             case "NONRECURRINGEVENT":
                 data = {
-                    'name': webapp_data["name"],
-                    'datetime': datetime.datetime.strptime(webapp_data["datetime"], "%Y-%m-%d %H:%M"),
+                    'name': webapp_data["eventName"],
+                    'datetime': datetime.datetime.strptime(f"{webapp_data['eventDate']} {webapp_data['eventTime']}", "%Y-%m-%d %H:%M"),
                     'chat_id': update.message.chat_id,
                 }
                 if self.create_nr_event(data):
-                    logger.info(f"Sucessfully created event for user {update.message.chat_id}")
+                    logger.info(f"Non recurring event added to database for user {update.message.chat_id}")
                     await self.app.bot.send_message(update.message.chat_id, text="Event added!")
                 else:
-                    logger.error(f"Failed to add event for user {update.message.chat_id}")
+                    logger.error(f"Error adding non recurring event {data['name']}:{data['datetime']}. Reminders not set.")
 
             case "RECURRINGEVENT":
                 data = {
-                    "name": webapp_data["name"],
+                    "name": webapp_data["eventName"],
                     "recurrence": webapp_data["frequency"],
-                    "time": webapp_data["time"],
+                    "time": webapp_data["eventTime"],
                     "user": update.message.chat_id,
                 }
                 if self.bot_sql.insert("recurringevents", data=data):
-                    logger.info(f"Recurring event added for user {update.message.chat_id}")
+                    logger.info(f"Recurring event added to database for user {update.message.chat_id}")
+
                     await self.app.bot.send_message(update.message.chat_id, text="Event added!")
                 else:
                     logger.error(f"Error inserting recurring event {[key for key in data.keys()]}")
@@ -177,28 +206,39 @@ class PersistentBot:
 
     def create_nr_event(self, data: dict):
         # Send message at event time
-        self.app.job_queue.run_once(self.event_now, data["event_time"], data=data)
-        # Set reminders
-        # NOTE: apscheduler automatically handles events that are in the past, this could
-        # cause issues in the future?
-        self.event_set_reminder(data["chat_id"], data["name"], data["event_time"], days=0, hours=0, minutes=15)
-        self.event_set_reminder(data["chat_id"], data["name"], data["event_time"], days=0, hours=1, minutes=0)
-        self.event_set_reminder(data["chat_id"], data["name"], data["event_time"], days=0, hours=4, minutes=0)
-        self.event_set_reminder(data["chat_id"], data["name"], data["event_time"], days=1, hours=0, minutes=0)
-        self.event_set_reminder(data["chat_id"], data["name"], data["event_time"], days=5, hours=0, minutes=0)
+        self.app.job_queue.run_once(self.event_now, data["eventTime"], data=data)
 
         # Add event to events table
-        data = {
+        ins_data = {
             "user": data["chat_id"],
-            "name": data["name"],
-            "datetime": data["event_time"]
+            "name": data["eventName"],
+            "datetime": data["eventTime"]
         }
-        return self.bot_sql.insert("events", data=data)
+        if self.bot_sql.insert("events", data=ins_data):
+            # Set reminders
+            # NOTE: apscheduler automatically handles events that are in the past, this could
+            # cause issues in the future?
+            for reminder in data["reminder"]:
+                num, period = reminder.split("-")
+                num = int(num)
+                match period:
+                    case "MINUTES":
+                        self.event_set_reminder(data["chat_id"], data["eventName"], data["eventTime"], minutes=num)
+                    case "HOURS":
+                        self.event_set_reminder(data["chat_id"], data["eventName"], data["eventTime"], hours=num)
+                    case "DAYS":
+                        self.event_set_reminder(data["chat_id"], data["eventName"], data["eventTime"], days=num)
+                    case "WEEKS":
+                        self.event_set_reminder(data["chat_id"], data["eventName"], data["eventTime"],
+                                                days=int(7 * num))
+            return True
+
+        return False
 
     async def event_now(self, context: ContextTypes.DEFAULT_TYPE):
         data = context.job.data
         await self.app.bot.send_message(data['chat_id'], f"Event {data['name']} is happening now!")
-        self.bot_sql.remove_nr_event(data["chat_id"], data["name"], data["datetime"])
+        self.bot_sql.remove_nr_event(data["chat_id"], data["eventName"], data["datetime"])
 
     def event_set_reminder(self, chat_id, name: str, event_time: datetime.datetime, days=0, hours=0, minutes=0):
         # Use timedelta to avoid dictionary mess
@@ -214,7 +254,8 @@ class PersistentBot:
     async def event_send_reminder(self, context: ContextTypes.DEFAULT_TYPE):
         await self.app.bot.send_message(context.job.data['chat_id'], f"REMINDER: {context.job.data['name']} at {context.job.data['time']}")
 
-    def create_r_event(self, chat_id, name: str, time: datetime.datetime, freq: str, day:str = None):
+    # TODO: use a dict instead of multiple params for this method
+    def create_r_event(self, chat_id, name: str, time: datetime.datetime, freq: str, day: str = None):
         # one liners :)
         freq = (f"{freq}:{day}" if day else freq).capitalize()
 
@@ -232,8 +273,6 @@ class PersistentBot:
         return self.bot_sql.check_for_user(chat_id) is not None
 
     def daily_message(self, chatid: int):
-        if DEBUG:
-            print("|---DEBUGGING IN PersistentBot.daily_message----|")
         msg = ""
         # Get events for today
         events = self.bot_sql.events_on(chatid, datetime.date.today())
@@ -264,8 +303,6 @@ class PersistentBot:
     async def todo(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         items = self.bot_sql.todo_items(update.message.chat_id)
         todolist = ""
-        if DEBUG:
-            print(items)
         for item in items:
             _, _, item = item
             todolist += item + '\n'
