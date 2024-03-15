@@ -1,0 +1,96 @@
+/* Basic Reset */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Arial', sans-serif; /* A clean, minimalist font */
+    background-color: #f0f0f0; /* Light grey background for a soft look */
+    color: #333; /* Dark grey color for text for readability */
+    line-height: 1.6;
+    padding: 20px;
+}
+
+header {
+    text-align: center;
+    padding: 20px 0;
+}
+
+header h1 {
+    margin-bottom: 10px;
+    color: #222; /* Slightly darker color for headings */
+}
+
+/* Navigation Menu (if applicable) */
+nav ul {
+    list-style-type: none;
+    padding: 0;
+}
+
+nav ul li {
+    display: inline;
+    margin: 0 10px;
+}
+
+nav ul li a {
+    text-decoration: none;
+    color: #333;
+}
+
+/* Main Content Styles */
+main {
+    max-width: 1200px;
+    margin: 20px auto;
+    padding: 20px;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.1); /* subtle shadow for depth */
+}
+
+section {
+    margin-bottom: 20px;
+}
+
+/* Feature Links or Buttons */
+#features {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 20px;
+    text-align: center;
+}
+
+.feature-item {
+    padding: 20px;
+    background: #e9e9e9; /* Lighter grey for contrast */
+    border-radius: 5px;
+    transition: background-color 0.3s, transform 0.3s;
+}
+
+.feature-item:hover {
+    background-color: #dcdcdc; /* Slightly darker on hover */
+    transform: translateY(-5px); /* subtle lift effect */
+}
+
+.feature-item a {
+    text-decoration: none;
+    color: #333;
+    font-weight: bold;
+}
+
+/* Footer */
+footer {
+    text-align: center;
+    padding: 20px 0;
+    font-size: 0.8em;
+    color: #666; /* Lighter grey for less emphasis */
+}
+
+@media (max-width: 768px) {
+    /* Responsive adjustments */
+    nav ul li {
+        display: block;
+        margin-bottom: 10px;
+    }
+}
