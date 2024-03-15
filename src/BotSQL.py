@@ -1,5 +1,5 @@
 import mysql.connector
-from Keys import MYSQL_USER, MYSQL_PASSWORD
+from src.Keys import Key
 import datetime
 import logging
 
@@ -9,8 +9,8 @@ logger = logging.getLogger(__name__)
 class BotSQL:
     def __init__(self):
         config = {
-            "user": MYSQL_USER,
-            "password": MYSQL_PASSWORD,
+            "user": Key.MYSQL_USER,
+            "password": Key.MYSQL_PASSWORD,
             "host": "localhost",
             "database": "telegram",
         }
@@ -37,7 +37,7 @@ class BotSQL:
         values = ""
         match table:
             case "users":
-                query = "INSERT INTO events(chatid) VALUES(%s)"
+                query = "INSERT INTO users(chatid) VALUES(%s)"
                 values = (data["chatid"],)
 
             case "events":
@@ -55,18 +55,25 @@ class BotSQL:
         return self.exec(query, values, True)
 
     def fetchall(self, query=None, values=None):
-        results = self.cursor.fetchall()
+        try:
+            results = self.cursor.fetchall()
+        except mysql.connector.errors.InterfaceError:
+            return None
         if len(results) > 0:
             return results
         else:
-            logger.error(f"SQLFetchError: Error fetching or executing select with query {query} and values {[val for val in values]}")
+            logger.error(f"SQLFetchError: Error fetching or executing select with query {query} and values {values}")
 
     def fetchone(self, query=None, values=None):
-        results = self.cursor.fetchone()
+        try:
+            results = self.cursor.fetchone()
+        except mysql.connector.errors.InterfaceError:
+            return None
+
         if len(results) > 0:
             return results
         else:
-            logger.error(f"SQLFetchError: Error fetching or executing select with query {query} and values {[val for val in values]}")
+            logger.error(f"SQLFetchError: Error fetching or executing select with query {query} and values {values}")
 
     def insert_zip(self, chatid: int, zip: int):
         query = "UPDATE users SET zip=%s WHERE chatid=%s"
