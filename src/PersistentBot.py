@@ -5,12 +5,12 @@ TODO:
     -https://github.com/devforth/tobedo/tree/master?tab=readme-ov-file
 3. Allow users to delete events
     - query for all users events, include event id
-    - use todolist structure, set onclick actions to add event id to a list
+    - use todolist structure built from JobQueue.jobs(), set onclick actions to delete Job add event id to a list
     - delete events, reminders
 4. Migrate project to WSL
     - Include bash and ps scripts
-
-
+5. Implement Weather.py
+6. Add timezone handling for US
 """
 
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, WebAppInfo, InlineKeyboardButton, InlineKeyboardMarkup
@@ -32,16 +32,16 @@ import atexit
 import logging
 from subprocess import run
 
-from Keys import TELEGRAM_API_KEY
-from Keys import PORTAL_URL
-from BotSQL import BotSQL
+from src.Keys import Key
+from src.BotSQL import BotSQL
 
 from pydevd_pycharm import settrace
 
-DEBUG = int(sys.argv[1])
 # Connect to pychharm debug server
-if DEBUG:
-    settrace('localhost', port=51858, stdoutToServer=True, stderrToServer=True)
+if __name__ == "__main__":
+    DEBUG = int(sys.argv[1])
+    if DEBUG:
+        settrace('localhost', port=51858, stdoutToServer=True, stderrToServer=True)
 
 
 @atexit.register
@@ -85,7 +85,7 @@ for logger_name, logger_obj in logging.root.manager.loggerDict.items():
         if isinstance(logger_obj, logging.Logger):
             logger_obj.setLevel(logging.ERROR)
 
-START, GET_ZIP, WEBAPP, GETZIP = range(4)
+START, WEBAPP, GETZIP = range(3)
 
 if __name__ == "__main__":
     logger.info("PersistentBot module started")
@@ -94,7 +94,8 @@ if __name__ == "__main__":
 class PersistentBot:
     def __init__(self):
         # Create bot
-        self.app = ApplicationBuilder().token(TELEGRAM_API_KEY).defaults(Defaults(tzinfo=pytz.timezone("US/Eastern"))).build()
+        self.app = ApplicationBuilder().token(Key.TELEGRAM_API_KEY).defaults(
+            Defaults(tzinfo=pytz.timezone("US/Eastern"))).build()
 
         # Connect database
         self.bot_sql = BotSQL()
@@ -135,13 +136,14 @@ class PersistentBot:
             zip_code = int(zip_code)
             # Add zip code to database
             self.bot_sql.insert_zip(update.message.chat_id, zip_code)
-            await self.app.bot.send_message(
-                text=f"ZIP code {zip_code} has been added to your profile! Weather data will now be added to your daily message",
-                chat_id=update.message.chat_id)
+            await self.app.bot.send_message(update.message.chat_id,
+                                            text=f"ZIP code {zip_code} has been added to your profile! Weather data will now be added to your daily message",
+                                            )
             logger.info(f"ZIP code added for user {update.message.chat_id}")
         except ValueError:
             logger.error(f"Value Error: ZIP code {zip_code} could not be inserted for user {update.message.chat_id}")
-            await self.app.bot.send_message(update.message.chat_id, text="Your ZIP is not an integer and could not be added. Please type /zip to try again")
+            await self.app.bot.send_message(update.message.chat_id,
+                                            text="Your ZIP is not an integer and could not be added. Please type /zip to try again")
 
         return ConversationHandler.END
 
@@ -150,17 +152,19 @@ class PersistentBot:
         user_chat_id = update.message.chat_id
         if not self.bot_sql.check_for_user(user_chat_id):
             self.bot_sql.insert("users", data={"chatid": user_chat_id})
-            await self.app.bot.send_message(chat_id=update.message.chat_id, text="Welcome to the bot!")
-            await self.app.bot.send_message(chat_id=update.message.chat_id, text="To get weather data, I need to know your ZIP code. To enter it, type /zip at anytime")
-            await self.app.bot.send_message(chat_id=update.message.chat_id, text="A ZIP code is not required.")
+            await self.app.bot.send_message(update.message.chat_id, text="Welcome to the bot!")
+            await self.app.bot.send_message(update.message.chat_id, text="To get weather data, I need to know your ZIP code. To enter it, type /zip at anytime")
+            await self.app.bot.send_message(update.message.chat_id, text="A ZIP code is not required.")
             logger.info(f"New user {update.message.chat_id}")
+        else:
+            await self.app.bot.send_message(update.message.chat_id, text="hello")
 
     async def launch_web_ui(self, update: Update, callback: ContextTypes.DEFAULT_TYPE):
         # Display launch page
         kb = [
             [KeyboardButton(
                 "Go to bot portal",
-                web_app=WebAppInfo(PORTAL_URL)
+                web_app=WebAppInfo(Key.PORTAL_URL)
             )]
         ]
         await update.message.reply_text("Launching portal...", reply_markup=ReplyKeyboardMarkup(kb))
@@ -178,14 +182,16 @@ class PersistentBot:
             case "NONRECURRINGEVENT":
                 data = {
                     'name': webapp_data["eventName"],
-                    'datetime': datetime.datetime.strptime(f"{webapp_data['eventDate']} {webapp_data['eventTime']}", "%Y-%m-%d %H:%M"),
+                    'datetime': datetime.datetime.strptime(f"{webapp_data['eventDate']} {webapp_data['eventTime']}",
+                                                           "%Y-%m-%d %H:%M"),
                     'chat_id': update.message.chat_id,
                 }
                 if self.create_nr_event(data):
                     logger.info(f"Non recurring event added to database for user {update.message.chat_id}")
                     await self.app.bot.send_message(update.message.chat_id, text="Event added!")
                 else:
-                    logger.error(f"Error adding non recurring event {data['name']}:{data['datetime']}. Reminders not set.")
+                    logger.error(
+                        f"Error adding non recurring event {data['name']}:{data['datetime']}. Reminders not set.")
 
             case "RECURRINGEVENT":
                 data = {
@@ -252,7 +258,8 @@ class PersistentBot:
         })
 
     async def event_send_reminder(self, context: ContextTypes.DEFAULT_TYPE):
-        await self.app.bot.send_message(context.job.data['chat_id'], f"REMINDER: {context.job.data['name']} at {context.job.data['time']}")
+        await self.app.bot.send_message(context.job.data['chat_id'],
+                                        f"REMINDER: {context.job.data['name']} at {context.job.data['time']}")
 
     # TODO: use a dict instead of multiple params for this method
     def create_r_event(self, chat_id, name: str, time: datetime.datetime, freq: str, day: str = None):
@@ -283,7 +290,7 @@ class PersistentBot:
             _, _1, event_name, event_time = event
             # get time from datetime object and convert to 12 hour time
             event_time = event_time.strftime('%I:%M %p')
-            msg += f"[{idx+1}]:  {event_name} at {event_time}\n"
+            msg += f"[{idx + 1}]:  {event_name} at {event_time}\n"
             if DEBUG:
                 print(f"Event name: {event_name}, Event time: {event_time}")
 
@@ -291,13 +298,14 @@ class PersistentBot:
         return msg
 
     async def send_daily_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        await self.app.bot.send_message(chat_id=update.message.chat_id, text=self.daily_message(update.message.chat_id))
+        await self.app.bot.send_message(update.message.chat_id, text=self.daily_message(update.message.chat_id))
 
     async def remove_zip(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if self.bot_sql.remove_zip(update.message.chat_id):
-            await self.app.bot.send_message(chat_id=update.message.chat_id, text="Your ZIP code has been removed from your profile.")
+            await self.app.bot.send_message(update.message.chat_id,
+                                            text="Your ZIP code has been removed from your profile.")
         else:
-            await self.app.bot.send_message(chat_id=update.message.chat_id,
+            await self.app.bot.send_message(update.message.chat_id,
                                             text="The system encountered an error deleting your ZIP code. Please try again later.")
 
     async def todo(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -310,5 +318,6 @@ class PersistentBot:
         return todolist
 
 
-b = PersistentBot()
-b.start_bot()
+if __name__ == "__main__":
+    b = PersistentBot()
+    b.start_bot()
