@@ -257,6 +257,7 @@ class PersistentBot:
                                         f"REMINDER: {context.job.data['name']} at {context.job.data['time']}")
 
     # TODO: use a dict instead of multiple params for this method
+    # TODO: add reminders, verify action is succesful
     def create_r_event(self, chat_id, name: str, time: datetime.datetime, freq: str, day: str = None):
         # one liners :)
         freq = (f"{freq}:{day}" if day else freq).capitalize()

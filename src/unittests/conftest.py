@@ -1,7 +1,8 @@
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, patch, Mock
 
 from src.PersistentBot import PersistentBot
+
 
 @pytest.fixture(scope='session')
 def mock_send_message():
@@ -11,8 +12,8 @@ def mock_send_message():
 
 @pytest.fixture(scope='session')
 def mock_db_insert():
-    with patch("src.BotSQL.BotSQL.insert", new_callable=AsyncMock) as mock:
-            yield True
+    with patch("src.BotSQL.BotSQL.insert", new_callable=Mock) as mock:
+        yield mock
 
 
 @pytest.fixture(scope='session')
@@ -29,8 +30,5 @@ def mock_set_reminder():
 
 @pytest.fixture(scope='session')
 def mock_run_once():
-    from telegram.ext._jobqueue import JobQueue
-    with patch("telegram.ext._jobqueue.JobQueue.run_once", new_callable=AsyncMock) as mock:
-        yield True
-
-
+    with patch("telegram.ext._jobqueue.JobQueue.run_once", new_callable=Mock) as mock:
+        yield mock

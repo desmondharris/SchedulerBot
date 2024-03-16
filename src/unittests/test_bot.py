@@ -133,4 +133,11 @@ async def test_web_app_data(mock_send_message, mock_db_insert, mock_run_once, mo
     context = ContextTypes.DEFAULT_TYPE(bot.app)
     await bot.web_app_data(update, context)
     mock_send_message.assert_awaited_with(172345, text="Event added!")
+    mock_run_once.assert_called_once()
+
+
+
+@pytest.mark.asyncio
+async def test_recurring_event():
+    pass
 
