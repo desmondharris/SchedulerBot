@@ -39,7 +39,10 @@ from pydevd_pycharm import settrace
 
 # Connect to pychharm debug server
 if __name__ == "__main__":
-    DEBUG = int(sys.argv[1])
+    try:
+        DEBUG = int(sys.argv[-1])
+    except IndexError:
+        DEBUG = 0
     if DEBUG:
         settrace('localhost', port=51858, stdoutToServer=True, stderrToServer=True)
 
@@ -170,28 +173,19 @@ class PersistentBot:
         await update.message.reply_text("Launching portal...", reply_markup=ReplyKeyboardMarkup(kb))
 
     async def web_app_data(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        if DEBUG:
-            print("|---DEBUGGING IN PersistentBot.web_app_data---|")
+        print(update.message.web_app_data.data)
         webapp_data = json.loads(update.message.web_app_data.data)
-        await update.message.reply_text("Your data was:")
-        await update.message.reply_text(f"{webapp_data}")
-        if DEBUG:
-            print(webapp_data)
+        webapp_data["chat_id"] = update.message.chat_id
+        logger.debug(f"Webapp data received: {webapp_data}")
 
         match webapp_data["type"]:
             case "NONRECURRINGEVENT":
-                data = {
-                    'name': webapp_data["eventName"],
-                    'datetime': datetime.datetime.strptime(f"{webapp_data['eventDate']} {webapp_data['eventTime']}",
-                                                           "%Y-%m-%d %H:%M"),
-                    'chat_id': update.message.chat_id,
-                }
-                if self.create_nr_event(data):
+                if self.create_nr_event(webapp_data):
                     logger.info(f"Non recurring event added to database for user {update.message.chat_id}")
                     await self.app.bot.send_message(update.message.chat_id, text="Event added!")
                 else:
                     logger.error(
-                        f"Error adding non recurring event {data['name']}:{data['datetime']}. Reminders not set.")
+                        f"Error adding non recurring event {webapp_data['name']}:{webapp_data['eventData']} {webapp_data['eventTime']}. Reminders not set.")
 
             case "RECURRINGEVENT":
                 data = {
@@ -211,6 +205,7 @@ class PersistentBot:
         pass
 
     def create_nr_event(self, data: dict):
+        data["eventTime"] = datetime.datetime.strptime(f"{data['eventDate']} {data['eventTime']}", "%Y-%m-%d %H:%M")
         # Send message at event time
         self.app.job_queue.run_once(self.event_now, data["eventTime"], data=data)
 
@@ -224,7 +219,7 @@ class PersistentBot:
             # Set reminders
             # NOTE: apscheduler automatically handles events that are in the past, this could
             # cause issues in the future?
-            for reminder in data["reminder"]:
+            for reminder in data["reminders"]:
                 num, period = reminder.split("-")
                 num = int(num)
                 match period:
@@ -291,8 +286,6 @@ class PersistentBot:
             # get time from datetime object and convert to 12 hour time
             event_time = event_time.strftime('%I:%M %p')
             msg += f"[{idx + 1}]:  {event_name} at {event_time}\n"
-            if DEBUG:
-                print(f"Event name: {event_name}, Event time: {event_time}")
 
         msg += f"{datetime.datetime.now().strftime('%A, %B %d')}\n"
         return msg
