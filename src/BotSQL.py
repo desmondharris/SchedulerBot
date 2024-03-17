@@ -8,14 +8,13 @@ logger = logging.getLogger(__name__)
 
 class BotSQL:
     def __init__(self):
-        config = {
-            "user": Key.MYSQL_USER,
-            "password": Key.MYSQL_PASSWORD,
-            "host": "localhost",
-            "database": "telegram",
-        }
         try:
-            self.conn = mysql.connector.connect(**config)
+            self.conn = mysql.connector.connect(
+                host=Key.MYSQL_HOST,
+                user=Key.MYSQL_USER,
+                passwd=Key.MYSQL_PASSWORD,
+                database=Key.MYSQL_DB,
+            )
             logger.info("MySQL database connected")
         except mysql.connector.Error as e:
             logger.error(f"MySQL connection error {e.msg}")
