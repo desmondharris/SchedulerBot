@@ -40,35 +40,11 @@ from pydevd_pycharm import settrace
 # Connect to pychharm debug server
 if __name__ == "__main__":
     try:
-        DEBUG = int(sys.argv[-1])
+        DEBUG = int(sys.argv[1])
     except IndexError:
         DEBUG = 0
     if DEBUG:
         settrace('localhost', port=51858, stdoutToServer=True, stderrToServer=True)
-
-
-@atexit.register
-def cleanup():
-    # End processes for web app
-    for script in ["ngrok.exe", "python -m http.server"]:
-        ps_command = f"""
-        Get-CimInstance Win32_Process | 
-        Where-Object {{ $_.CommandLine -like '*{script}*' }} | 
-        ForEach-Object {{ Stop-Process -Id $_.ProcessId }}
-        """
-    result = run(["powershell", "-Command", ps_command], capture_output=True, text=True)
-
-    # Check if the command was successful
-    if result.returncode == 0:
-        msg = "Exit cmd executed. Output:\n"
-        if result.stdout:
-            logger.info(msg + result.stdout)
-        if result.stderr:
-            logger.warning(msg + result.stderr)
-    else:
-        if result.stderr:
-            logger.error(f"Exit cmd failed to execute. Output:\n {result.stderr}")
-
 
 # logging setup
 logging.basicConfig(level=logging.ERROR,
@@ -155,9 +131,7 @@ class PersistentBot:
         user_chat_id = update.message.chat_id
         if not self.bot_sql.check_for_user(user_chat_id):
             self.bot_sql.insert("users", data={"chatid": user_chat_id})
-            await self.app.bot.send_message(update.message.chat_id, text="Welcome to the bot!")
-            await self.app.bot.send_message(update.message.chat_id, text="To get weather data, I need to know your ZIP code. To enter it, type /zip at anytime")
-            await self.app.bot.send_message(update.message.chat_id, text="A ZIP code is not required.")
+            await self.app.bot.send_message(update.message.chat_id, text="Welcome to the bot! To get weather data, I need to know your ZIP code. To enter it, type /zip at anytime. This is NOT required.")
             logger.info(f"New user {update.message.chat_id}")
         else:
             await self.app.bot.send_message(update.message.chat_id, text="hello")
@@ -172,6 +146,14 @@ class PersistentBot:
         ]
         await update.message.reply_text("Launching portal...", reply_markup=ReplyKeyboardMarkup(kb))
 
+    """
+    TODO: Change all these dicts to use common variable names.
+    name: event name
+    date: event date only
+    time: event time only
+    datetime: datetime of event
+    user: chat id of context user
+    """
     async def web_app_data(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         print(update.message.web_app_data.data)
         webapp_data = json.loads(update.message.web_app_data.data)
@@ -194,6 +176,7 @@ class PersistentBot:
                     "time": webapp_data["eventTime"],
                     "user": update.message.chat_id,
                 }
+                # TODO: Change this to self.create_r_event
                 if self.bot_sql.insert("recurringevents", data=data):
                     logger.info(f"Recurring event added to database for user {update.message.chat_id}")
 
@@ -257,18 +240,22 @@ class PersistentBot:
                                         f"REMINDER: {context.job.data['name']} at {context.job.data['time']}")
 
     # TODO: use a dict instead of multiple params for this method
-    # TODO: add reminders, verify action is succesful
+    # TODO: add reminders, verify action is succesfull
     def create_r_event(self, chat_id, name: str, time: datetime.datetime, freq: str, day: str = None):
-        # one liners :)
         freq = (f"{freq}:{day}" if day else freq).capitalize()
-
-        self.bot_sql.insert("recurringevents", data={
+        # self.run_once
+        if self.bot_sql.insert("recurringevents", data={
             "user": chat_id,
             "name": name,
             "recurrence": freq,
             "time": time
-        })
+        }):
+            # set reminders
+            return True
+        return False
 
+    def r_event_set_reminder(self, data: dict, minutes: int = 0, hours: int=0, days: int = 0):
+        pass
     def get_events_between(self, chat_id, start: datetime.date, end: datetime.date):
         return self.bot_sql.events_between(chat_id, start, end)
 
