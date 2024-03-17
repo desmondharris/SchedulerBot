@@ -14,7 +14,7 @@ from src.BotSQL import BotSQL
 
 
 @pytest.mark.asyncio
-async def test_start_command_response(mock_send_message):
+async def test_start_command_response(mock_send_message, mock_db_insert, mock_exec):
     # Create an instance of your bot
     bot_instance = PersistentBot()
 
@@ -35,11 +35,11 @@ async def test_start_command_response(mock_send_message):
 
     # Mock sending message
     await bot_instance.start(update, context)
-    mock_send_message.assert_awaited_with(12345, text="hello")
+    mock_send_message.assert_awaited_with(12345, text="Welcome to the bot! To get weather data, I need to know your ZIP code. To enter it, type /zip at anytime. This is NOT required.")
 
 
 @pytest.mark.asyncio
-async def test_zip_handler(mock_reply_text, mock_send_message):
+async def test_zip_handler(mock_reply_text, mock_send_message, mock_exec):
     bot = PersistentBot()
 
     update = Update(
@@ -84,7 +84,7 @@ async def test_zip_handler(mock_reply_text, mock_send_message):
 
 
 @pytest.mark.asyncio
-async def test_web_app_data(mock_send_message, mock_db_insert, mock_run_once, mock_set_reminder):
+async def test_nonrecurring_event(mock_send_message, mock_db_insert, mock_run_once, mock_set_reminder, mock_exec, mock_insert_zip):
     bot = PersistentBot()
     # Create a generic version of this update
     """
@@ -102,18 +102,11 @@ async def test_web_app_data(mock_send_message, mock_db_insert, mock_run_once, mo
       "reminders":["1-HOURS"]}')), update_id=166519222)
     """
     # convert this to a dictionary
-    type = "NONRECURRINGEVENT"
+    eventType = "NONRECURRINGEVENT"
     event_name = "Unit Test Event"
     event_date = "2024-03-15"
     event_time = "18:53"
     reminders = ["5-MINUTES"]
-    data = {
-        "type": type,
-        "eventName": event_name,
-        "eventDate": event_date,
-        "eventTime": event_time,
-        "reminders": reminders
-    }
 
     update = Update(
         message=Message(
@@ -127,7 +120,7 @@ async def test_web_app_data(mock_send_message, mock_db_insert, mock_run_once, mo
             message_id=933,
             supergroup_chat_created=False,
             web_app_data=WebAppData(button_text='Go to bot portal',
-                                    data=f'{{"type":"{type}","eventName":"{event_name}","eventDate":"{event_date}","eventTime":"{event_time}","reminders":["5-MINUTES"]}}')),
+                                    data=f'{{"type":"{eventType}","eventName":"{event_name}","eventDate":"{event_date}","eventTime":"{event_time}","reminders":["5-MINUTES"]}}')),
         update_id=166519222
     )
     context = ContextTypes.DEFAULT_TYPE(bot.app)
@@ -136,8 +129,27 @@ async def test_web_app_data(mock_send_message, mock_db_insert, mock_run_once, mo
     mock_run_once.assert_called_once()
 
 
-
 @pytest.mark.asyncio
-async def test_recurring_event():
+async def test_recurring_event(mock_db_insert):
     pass
+    bot = PersistentBot()
+
+    # Create update object with recurring event
+    # update = ...
+
+    # Intitialize event arguments
+    #name = ...
+
+    # Call bot.web_app_data
+
+    #bot.create_r_event.assert_called_with()
+
+    #bot.mock_db_insert.assert_called_with()
+
+    #assert bot.r_event_set_reminder was called with all appropriate sets of args
+    
+
+
+
+
 
