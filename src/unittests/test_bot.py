@@ -129,24 +129,24 @@ async def test_nonrecurring_event(mock_send_message, mock_db_insert, mock_run_on
     mock_run_once.assert_called_once()
 
 
-@pytest.mark.asyncio
-async def test_recurring_event(mock_db_insert):
-    pass
-    bot = PersistentBot()
-
-    # Create update object with recurring event
-    # update = ...
-
-    # Intitialize event arguments
-    #name = ...
-
-    # Call bot.web_app_data
-
-    #bot.create_r_event.assert_called_with()
-
-    #bot.mock_db_insert.assert_called_with()
-
-    #assert bot.r_event_set_reminder was called with all appropriate sets of args
+# @pytest.mark.asyncio
+# async def test_recurring_event(mock_db_insert):
+#     pass
+#     bot = PersistentBot()
+#
+#     # Create update object with recurring event
+#     # update = ...
+#
+#     # Intitialize event arguments
+#     #name = ...
+#
+#     # Call bot.web_app_data
+#
+#     #bot.create_r_event.assert_called_with()
+#
+#     #bot.mock_db_insert.assert_called_with()
+#
+#     #assert bot.r_event_set_reminder was called with all appropriate sets of args
     
 
 

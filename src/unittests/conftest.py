@@ -21,7 +21,7 @@ def mock_reply_text():
 
 @pytest.fixture(scope='session')
 def mock_set_reminder():
-    with patch("src.PersistentBot.PersistentBot.event_set_reminder", new_callable=AsyncMock) as mock:
+    with patch("src.PersistentBot.PersistentBot.event_set_reminder", new_callable=Mock) as mock:
         yield True
 
 
