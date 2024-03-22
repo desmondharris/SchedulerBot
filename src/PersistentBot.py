@@ -7,8 +7,6 @@ TODO:
     - query for all users events, include event id
     - use todolist structure built from JobQueue.jobs(), set onclick actions to delete Job add event id to a list
     - delete events, reminders
-4. Migrate project to WSL
-    - Include bash and ps scripts
 5. Implement Weather.py
 6. Add timezone handling for US
 """
