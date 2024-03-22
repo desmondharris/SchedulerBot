@@ -7,3 +7,5 @@ __pycache__
 Keys.py
 src/Scratch.py
 .pytest_cache
+venv
+__init__.py
