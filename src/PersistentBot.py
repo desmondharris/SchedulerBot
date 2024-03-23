@@ -31,7 +31,7 @@ import logging
 from subprocess import run
 
 from src.Keys import Key
-from src.BotSQL import BotSQL
+from src.BotSQL import User, NonRecurringEvent, RecurringEvent
 
 from pydevd_pycharm import settrace
 
@@ -126,9 +126,8 @@ class PersistentBot:
 
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Check if user is in database
-        user_chat_id = update.message.chat_id
-        if not self.bot_sql.check_for_user(user_chat_id):
-            self.bot_sql.insert("users", data={"chatid": user_chat_id})
+        user, created = User.get_or_create(id=update.message.chat_id)
+        if created:
             await self.app.bot.send_message(update.message.chat_id, text="Welcome to the bot! To get weather data, I need to know your ZIP code. To enter it, type /zip at anytime. This is NOT required.")
             logger.info(f"New user {update.message.chat_id}")
         else:
@@ -160,62 +159,13 @@ class PersistentBot:
 
         match webapp_data["type"]:
             case "NONRECURRINGEVENT":
-                if self.create_nr_event(webapp_data):
-                    logger.info(f"Non recurring event added to database for user {update.message.chat_id}")
-                    await self.app.bot.send_message(update.message.chat_id, text="Event added!")
-                else:
-                    logger.error(
-                        f"Error adding non recurring event {webapp_data['name']}:{webapp_data['eventData']} {webapp_data['eventTime']}. Reminders not set.")
+                self.create_nr_event(webapp_data)
 
             case "RECURRINGEVENT":
-                data = {
-                    "name": webapp_data["eventName"],
-                    "recurrence": webapp_data["frequency"],
-                    "time": webapp_data["eventTime"],
-                    "user": update.message.chat_id,
-                }
-                # TODO: Change this to self.create_r_event
-                if self.bot_sql.insert("recurringevents", data=data):
-                    logger.info(f"Recurring event added to database for user {update.message.chat_id}")
-
-                    await self.app.bot.send_message(update.message.chat_id, text="Event added!")
-                else:
-                    logger.error(f"Error inserting recurring event {[key for key in data.keys()]}")
+                self.create_r_event(webapp_data)
 
     async def cancel(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         pass
-
-    def create_nr_event(self, data: dict):
-        data["eventTime"] = datetime.datetime.strptime(f"{data['eventDate']} {data['eventTime']}", "%Y-%m-%d %H:%M")
-        # Send message at event time
-        self.app.job_queue.run_once(self.event_now, data["eventTime"], data=data)
-
-        # Add event to events table
-        ins_data = {
-            "user": data["chat_id"],
-            "name": data["eventName"],
-            "datetime": data["eventTime"]
-        }
-        if self.bot_sql.insert("events", data=ins_data):
-            # Set reminders
-            # NOTE: apscheduler automatically handles events that are in the past, this could
-            # cause issues in the future?
-            for reminder in data["reminders"]:
-                num, period = reminder.split("-")
-                num = int(num)
-                match period:
-                    case "MINUTES":
-                        self.event_set_reminder(data["chat_id"], data["eventName"], data["eventTime"], minutes=num)
-                    case "HOURS":
-                        self.event_set_reminder(data["chat_id"], data["eventName"], data["eventTime"], hours=num)
-                    case "DAYS":
-                        self.event_set_reminder(data["chat_id"], data["eventName"], data["eventTime"], days=num)
-                    case "WEEKS":
-                        self.event_set_reminder(data["chat_id"], data["eventName"], data["eventTime"],
-                                                days=int(7 * num))
-            return True
-
-        return False
 
     async def event_now(self, context: ContextTypes.DEFAULT_TYPE):
         data = context.job.data
@@ -237,20 +187,38 @@ class PersistentBot:
         await self.app.bot.send_message(context.job.data['chat_id'],
                                         f"REMINDER: {context.job.data['name']} at {context.job.data['time']}")
 
-    # TODO: use a dict instead of multiple params for this method
-    # TODO: add reminders, verify action is succesfull
-    def create_r_event(self, chat_id, name: str, time: datetime.datetime, freq: str, day: str = None):
-        freq = (f"{freq}:{day}" if day else freq).capitalize()
-        # self.run_once
-        if self.bot_sql.insert("recurringevents", data={
-            "user": chat_id,
-            "name": name,
-            "recurrence": freq,
-            "time": time
-        }):
-            # set reminders
-            return True
-        return False
+    def create_nr_event(self, data: dict):
+        data["eventTime"] = datetime.datetime.strptime(f"{data['eventDate']} {data['eventTime']}", "%Y-%m-%d %H:%M")
+        NonRecurringEvent.create(user=data["chat_id"], name=data["eventName"], datetime=data["eventTime"])
+        self.app.job_queue.run_once(self.event_now, data["eventTime"], data=data)
+        for reminder in data["reminders"]:
+            num, period = reminder.split("-")
+            num = int(num)
+            match period:
+                case "MINUTES":
+                    self.event_set_reminder(data["chat_id"], data["eventName"], data["eventTime"], minutes=num)
+                case "HOURS":
+                    self.event_set_reminder(data["chat_id"], data["eventName"], data["eventTime"], hours=num)
+                case "DAYS":
+                    self.event_set_reminder(data["chat_id"], data["eventName"], data["eventTime"], days=num)
+                case "WEEKS":
+                    self.event_set_reminder(data["chat_id"], data["eventName"], data["eventTime"],
+                                            days=int(7 * num))
+
+    def create_r_event(self, data: dict):
+        freq = (f"{data['freq']}:{data['day']}" if data["day"] else data["freq"]).capitalize()
+        time = datetime.datetime.strptime(data["eventTime"], "%H:%M")
+        RecurringEvent.create(user=data["chat_id"], name=data["eventName"], reccurence=freq, time=time)
+
+        # In each block, set recurring reminders event notifs to job queue
+        match freq:
+            case "DAILY":
+                pass
+            case "WEEKLY":
+                pass
+            case "MONTHLY":
+                pass
+
 
     def r_event_set_reminder(self, data: dict, minutes: int = 0, hours: int=0, days: int = 0):
         pass
