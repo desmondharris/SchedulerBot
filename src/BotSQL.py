@@ -1,11 +1,40 @@
-import mysql.connector
+from peewee import *
 from src.Keys import Key
-import datetime
+import datetime as dt
 import logging
 
 logger = logging.getLogger(__name__)
 
+mysql_db = MySQLDatabase(Key.MYSQL_DB, user=Key.MYSQL_USER, password=Key.MYSQL_PASSWORD,
+                         host=Key.MYSQL_HOST, port=3306)
 
+
+class BaseModel(Model):
+    class Meta:
+        database = mysql_db
+
+# Define tables
+class User(BaseModel):
+    id = AutoField()
+    zip = IntegerField()
+
+
+class NonRecurringEvent(BaseModel):
+    user = ForeignKeyField(User, backref='non_recurring_events')
+    name = CharField(255)
+    datetime = DateTimeField()
+
+
+class RecurringEvent(BaseModel):
+    user = ForeignKeyField(User, backref='recurring_events')
+    name = CharField(255)
+    recurrence = CharField(255)
+    time = CharField(5)
+
+
+
+
+'''
 class BotSQL:
     def __init__(self):
         try:
@@ -118,4 +147,4 @@ class BotSQL:
         values = (user,)
         self.exec(query, values)
         return self.fetchall()
-
+'''
