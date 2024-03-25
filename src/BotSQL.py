@@ -1,121 +1,46 @@
-import mysql.connector
+from peewee import *
 from src.Keys import Key
-import datetime
+from datetime import datetime as dt
+from datetime import time, date
 import logging
 
 logger = logging.getLogger(__name__)
 
+mysql_db = MySQLDatabase(Key.MYSQL_DB, user=Key.MYSQL_USER, password=Key.MYSQL_PASSWORD,
+                         host=Key.MYSQL_HOST, port=3306)
 
-class BotSQL:
-    def __init__(self):
-        try:
-            self.conn = mysql.connector.connect(
-                host=Key.MYSQL_HOST,
-                user=Key.MYSQL_USER,
-                passwd=Key.MYSQL_PASSWORD,
-                database=Key.MYSQL_DB,
-            )
-            logger.info("MySQL database connected")
-        except mysql.connector.Error as e:
-            logger.error(f"MySQL connection error {e.msg}")
 
-        self.cursor = self.conn.cursor(buffered=True)
+class BaseModel(Model):
+    class Meta:
+        database = mysql_db
 
-    def exec(self, query, values, commit=False):
-        self.cursor.execute(query, values)
-        try:
-            if commit:
-                self.conn.commit()
-            return True
-        except mysql.connector.Error:
-            logger.error(f"MySQL error executing: \n{query} <- {values}")
-            return False
 
-    def insert(self, table: str, data: dict):
-        query = ""
-        values = ""
-        match table:
-            case "users":
-                query = "INSERT INTO users(chatid) VALUES(%s)"
-                values = (data["chatid"],)
+# Define tables
+class User(BaseModel):
+    id = IntegerField(primary_key=True)
+    zip = IntegerField()
 
-            case "events":
-                query = "INSERT INTO events(user, name, datetime) VALUES(%s, %s, %s)"
-                values = (data["user"], data["name"], data["datetime"],)
 
-            case "recurringevents":
-                query = "INSERT INTO recurringevents(user, name, recurrence, time) VALUES(%s, %s, %s, %s)"
-                values = (data["user"], data["name"], data["recurrence"], data["time"],)
+class NonRecurringEvent(BaseModel):
+    event_id = AutoField()
+    user = ForeignKeyField(User, backref='non_recurring_events')
+    name = CharField(255)
+    date = DateField()
+    time = TimeField()
 
-            case "todoitems":
-                query = "INSERT INTO todoitems(user, item) VALUES(%s, %s)"
-                values = (data["user"], data["item"],)
 
-        return self.exec(query, values, True)
+class RecurringEvent(BaseModel):
+    event_id = AutoField()
+    user = ForeignKeyField(User, backref='recurring_events')
+    name = CharField(255)
+    recurrence = CharField(255)
+    time = CharField(5)
 
-    def fetchall(self, query=None, values=None):
-        try:
-            results = self.cursor.fetchall()
-        except mysql.connector.errors.InterfaceError:
-            return None
-        if len(results) > 0:
-            return results
-        else:
-            logger.error(f"SQLFetchError: Error fetching or executing select with query {query} and values {values}")
 
-    def fetchone(self, query=None, values=None):
-        try:
-            results = self.cursor.fetchone()
-        except mysql.connector.errors.InterfaceError:
-            return None
-
-        if len(results) > 0:
-            return results
-        else:
-            logger.error(f"SQLFetchError: Error fetching or executing select with query {query} and values {values}")
-
-    def insert_zip(self, chatid: int, zip: int):
-        query = "UPDATE users SET zip=%s WHERE chatid=%s"
-        values = (zip, chatid)
-        return self.exec(query, values, True)
-
-    def remove_zip(self, user):
-        query = "UPDATE users SET zip=NULL WHERE chatid=%s"
-        values = (user,)
-        return self.exec(query, values, True)
-
-    def remove_nr_event(self, user: int, event_name: str, event_time: datetime.datetime):
-        query = "DELETE FROM events WHERE user=%s and datetime=%s and name=%s"
-        values = (user, event_time, event_name)
-        return self.exec(query, values)
-
-    def events_on(self, user: int, date: datetime.date):
-        query = f"SELECT * FROM events WHERE user=%s AND datetime LIKE %S"
-        values = (user, datetime)
-        self.exec(query, values)
-        return self.fetchall(query, values)
-
-    def events_between(self, user, start: datetime.date, end: datetime.date):
-        query = f'SELECT * FROM events WHERE user=%s AND datetime BETWEEN %s AND %s'
-        values = (user, start, end)
-        self.exec(query, values)
-        return self.fetchall()
-
-    def recurring_events_on(self, user: int, day: str):
-        query = f"SELECT * FROM recurringevents WHERE user=%s AND recurrence LIKE %s"
-        values = (user, f"%{day.capitalize()}")
-        self.exec(query, values)
-        return self.fetchall(query, values)
-
-    def check_for_user(self, user: int):
-        query = "SELECT * FROM users WHERE chatid=%s"
-        values = (user,)
-        self.exec(query, values)
-        return self.fetchall()
-
-    def todo_items(self, user: int):
-        query = "SELECT * FROM todoitems WHERE user=%s"
-        values = (user,)
-        self.exec(query, values)
-        return self.fetchall()
+if __name__ == "__main__":
+    mysql_db.connect()
+    # mysql_db.create_tables([User, NonRecurringEvent, RecurringEvent])
+    # User.create(id=453234234)
+    NonRecurringEvent.create(user=453234234, date=date(2023, month=12, day=20), time=time(hour=15, minute=0), name="pwtest")
+    mysql_db.commit()
 
