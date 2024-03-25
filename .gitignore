@@ -10,3 +10,4 @@ src/Scratch.py
 venv
 __init__.py
 Scratch.*
+.env
