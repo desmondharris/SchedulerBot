@@ -11,3 +11,4 @@ venv
 __init__.py
 Scratch.*
 .env
+test.py
