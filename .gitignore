@@ -3,6 +3,7 @@
 *.log
 *.pem
 *.key
+*.session
 .idea
 __pycache__
 
@@ -12,5 +13,7 @@ src/Scratch.py
 venv
 __init__.py
 Scratch.*
+scratch.*
+
 .env
 test.py
