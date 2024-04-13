@@ -37,10 +37,13 @@ class RecurringEvent(BaseModel):
     time = peewee.CharField(5)
 
 
+class ToDo(BaseModel):
+    id = peewee.AutoField()
+    user = peewee.ForeignKeyField(User, backref='to_do_items')
+    text = peewee.CharField(255)
+    done = peewee.BooleanField()
+
+
 if __name__ == "__main__":
     mysql_db.connect()
-    # mysql_db.create_tables([User, NonRecurringEvent, RecurringEvent])
-    # User.create(id=453234234)
-    NonRecurringEvent.create(user=453234234, date=date(2023, month=12, day=20), time=time(hour=15, minute=0), name="pwtest")
-    mysql_db.commit()
-
+    mysql_db.create_tables([ToDo])

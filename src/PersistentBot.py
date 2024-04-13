@@ -12,9 +12,11 @@ TODO:
 """
 
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, WebAppInfo, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import CallbackQuery
 from telegram.ext import (
     ApplicationBuilder,
     ConversationHandler,
+    CallbackQueryHandler,
     ContextTypes,
     CommandHandler,
     Defaults,
@@ -30,8 +32,7 @@ import logging
 from peewee import DoesNotExist
 
 from src.Keys import Key
-from src.BotSQL import User, NonRecurringEvent, RecurringEvent
-
+from src.BotSQL import User, NonRecurringEvent, RecurringEvent, ToDo
 from pydevd_pycharm import settrace
 
 # Connect to pychharm debug server
@@ -63,6 +64,8 @@ for logger_name, logger_obj in logging.root.manager.loggerDict.items():
             logger_obj.setLevel(logging.ERROR)
 
 START, WEBAPP, GETZIP = range(3)
+CHECK_CHAR = '✅'
+UNCHECK_CHAR = '⬜'
 
 if __name__ == "__main__":
     logger.info("PersistentBot module started")
@@ -91,6 +94,10 @@ class PersistentBot:
             fallbacks=[CommandHandler("cancel", self.cancel)]
         )
         self.app.add_handler(zip_handler)
+
+        # Add to do list handler
+        self.app.add_handler(CallbackQueryHandler(self.todo_toggle))
+
         logger.debug("Bot object created")
 
     def start_bot(self):
@@ -185,7 +192,7 @@ class PersistentBot:
 
     async def event_send_reminder(self, context: ContextTypes.DEFAULT_TYPE):
         await self.app.bot.send_message(context.job.data['chat_id'],
-                                        f"REMINDER: {context.job.data['eventName']} at {context.job.data['eventTime']}, {context.job.data['eventData']}")
+                                        f"REMINDER: {context.job.data['eventName']} at {context.job.data['eventTime']}, {context.job.data['eventDate']}")
 
     async def create_nr_event(self, data: dict):
         # Add new event to database
@@ -308,7 +315,50 @@ class PersistentBot:
         await self.app.bot.send_message(update.message.chat_id, text="Your ZIP code has been removed from your profile.")
 
     async def todo(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        pass
+        try:
+            # If user passed new item for to do list, add it to DB
+            # Otherwise, display current to do list
+            cmd, item = update.message.text.split()
+            td = ToDo.create(user=update.message.chat_id, text=item)
+            if td.id:
+                logger.info(f"Created todo list item {td.id} for user {update.message.chat_id}")
+            else:
+                logger.error(f"Failed creating todo list item {item} for user {update.message.chat_id}")
+        except ValueError:
+            pass
+
+        # Display to do list
+        items = ToDo.select().where(ToDo.user == update.message.chat_id)
+        kb = []
+        [kb.append([InlineKeyboardButton(f"{CHECK_CHAR if item.done else UNCHECK_CHAR} {item.text}", callback_data=f"toggle__{item.id}")]) for item in items]
+        kb = InlineKeyboardMarkup(kb)
+        await update.message.reply_text("Your to-do list: ", reply_markup=kb)
+
+    async def todo_toggle(self, update: Update, context):
+        query = update.callback_query
+        new_kb = []
+        id = query.data.replace("toggle__", '')
+        todo = ToDo.get(ToDo.id == id)
+        tog = not todo.done
+        ToDo.update(done=tog).where(ToDo.id == id).execute()
+
+        items = ToDo.select().where(ToDo.user == query.message.chat_id)
+        kb = []
+        [kb.append([InlineKeyboardButton(f"{CHECK_CHAR if item.done else UNCHECK_CHAR} {item.text}",
+                                    callback_data=f"toggle__{item.id}")]) for item in items]
+        kb = InlineKeyboardMarkup(kb)
+
+        await context.bot.edit_message_text(
+            chat_id=query.message.chat_id,
+            message_id=query.message.message_id,
+            text=query.message.text,
+            reply_markup=kb
+        )
+
+
+
+
+
 
 
 if __name__ == "__main__":
