@@ -26,9 +26,7 @@ import sys
 import datetime
 import pytz
 import json
-import atexit
 import logging
-from subprocess import run
 from peewee import DoesNotExist
 
 from src.Keys import Key
@@ -93,6 +91,7 @@ class PersistentBot:
             fallbacks=[CommandHandler("cancel", self.cancel)]
         )
         self.app.add_handler(zip_handler)
+        logger.debug("Bot object created")
 
     def start_bot(self):
         logger.info("Bot started polling")
@@ -112,6 +111,7 @@ class PersistentBot:
             zip_code = int(zip_code)
             # TODO: Verify zip code exists
         except ValueError:
+            logger.info(f"Failed to add zip code ")
             await update.message.reply_text("Invalid ZIP code, please try again")
             return GETZIP
 
@@ -146,20 +146,25 @@ class PersistentBot:
     name: event name
     date: event date only
     time: event time only
-    datetime: datetime of event
+    eventTime: time of event
+    eventDate: date of event if exists
     user: chat id of context user
     """
     async def web_app_data(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         webapp_data = json.loads(update.message.web_app_data.data)
         webapp_data["chat_id"] = update.message.chat_id
         webapp_data["eventTime"] = datetime.datetime.strptime(webapp_data['eventTime'], "%H:%M").time()
+        try:
+            webapp_data["eventDate"] = datetime.datetime.strptime(webapp_data['eventDate'], "%Y-%m-%d")
+        except KeyError:
+            pass
         logger.debug(f"Webapp data received: {webapp_data}")
 
         match webapp_data["type"]:
             case "NONRECURRINGEVENT":
-                self.create_nr_event(webapp_data)
+                await self.create_nr_event(webapp_data)
             case "RECURRINGEVENT":
-                self.create_r_event(webapp_data)
+                await self.create_r_event(webapp_data)
 
     async def cancel(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         pass
@@ -171,44 +176,50 @@ class PersistentBot:
         await self.app.bot.send_message(data['chat_id'], f"Event {data['eventName']} is happening now!")
         NonRecurringEvent.delete().where(NonRecurringEvent)
 
-    def event_set_reminder(self, chat_id, name: str, event_time: datetime.datetime, days=0, hours=0, minutes=0):
+    def event_set_reminder(self, data, minutes: int=0,  hours: int=0, days: int=0):
         # Use timedelta to avoid dictionary mess
-        reminder_time = event_time - datetime.timedelta(days=days, hours=hours, minutes=minutes)
+        reminder_time = datetime.datetime.combine(data["eventDate"], data["eventTime"]) - datetime.timedelta(days=days, hours=hours, minutes=minutes)
         if reminder_time < datetime.datetime.now():
             return
-        self.app.job_queue.run_once(self.event_send_reminder, reminder_time, data={
-            'eventName': name,
-            'eventTime': event_time,
-            'chat_id': chat_id
-        })
+        self.app.job_queue.run_once(self.event_send_reminder, reminder_time, name=f"{data['chat_id']}:REMINDER:{data['eventId']}", data=data)
 
     async def event_send_reminder(self, context: ContextTypes.DEFAULT_TYPE):
         await self.app.bot.send_message(context.job.data['chat_id'],
-                                        f"REMINDER: {context.job.data['name']} at {context.job.data['time']}")
+                                        f"REMINDER: {context.job.data['eventName']} at {context.job.data['eventTime']}, {context.job.data['eventData']}")
 
-    def create_nr_event(self, data: dict):
-        # data["eventTime"] = datetime.datetime.strptime(f"{data['eventDate']} {data['eventTime']}", "%Y-%m-%d %H:%M")
+    async def create_nr_event(self, data: dict):
+        # Add new event to database
         evnt = NonRecurringEvent.create(user=data["chat_id"], name=data["eventName"], date=data["eventDate"],
                                         time=data['eventTime'])
-        data["eventId"] = evnt.id
-        data["eventDate"] = datetime.datetime.strptime(data['eventDate'], "%Y-%m-%d")
-        self.app.job_queue.run_once(self.event_now, datetime.datetime.combine(data["eventDate"], data["eventTime"]), data=data)
-        event_dt = datetime.datetime.combine(data['eventDate'], data['eventTime'])
+        if evnt.event_id is not None:
+            data["eventId"] = evnt.event_id
+            logger.info(f"Created event {data['eventId']} in database")
+        else:
+            logger.error(f"Failed to create event with params {data}")
+        # Add job to job queue with formatted name
+        self.app.job_queue.run_once(self.event_now, datetime.datetime.combine(data["eventDate"], data["eventTime"]), name=f"{data['chat_id']}:REMINDER:{data['eventId']}", data=data)
+
         for reminder in data["reminders"]:
             num, period = reminder.split("-")
             num = int(num)
             match period:
                 case "MINUTES":
-                    self.event_set_reminder(data["chat_id"], data["eventName"], event_dt, minutes=num)
+                    self.event_set_reminder(data,  minutes=num)
                 case "HOURS":
-                    self.event_set_reminder(data["chat_id"], data["eventName"], event_dt, hours=num)
+                    self.event_set_reminder(data,  hours=num)
                 case "DAYS":
-                    self.event_set_reminder(data["chat_id"], data["eventName"], event_dt, days=num)
+                    self.event_set_reminder(data,  days=num)
                 case "WEEKS":
-                    self.event_set_reminder(data["chat_id"], data["eventName"], event_dt,
+                    self.event_set_reminder(data, 
                                             days=int(7 * num))
+                    # If this case executes, web app has been altered or malfunctioned
+                case _:
+                    logger.error(f"CRTICAL ERROR: Received bad webapp data. {period} is not a valid time unit.")
+                    return
 
-    def create_r_event(self, data: dict):
+        await self.app.bot.send_message(data['chat_id'], "Event has been added to your calendar!")
+
+    async def create_r_event(self, data: dict):
         # Get a string of format DAILY, WEEKLY:MONDAY, MONTHLY:15
         freq, day = data['freq'].split('~')
         freq = freq.upper()
@@ -220,6 +231,7 @@ class PersistentBot:
         # Find all the times a reminder should be sent
         remind_times = []
         for reminder in data["reminders"]:
+            # In HTML, reminder have values NUMBER-UNITS
             num, time = reminder.split('-')
             num = int(num)
             match time:
@@ -227,15 +239,20 @@ class PersistentBot:
                     change = datetime.timedelta(minutes=num)
                 case "HOURS":
                     change = datetime.timedelta(hours=num)
+                case _:
+                    logger.error(f"CRTICAL ERROR: Received bad webapp data. {time} is not a valid time unit.")
+                    return
             new_time = datetime.datetime.combine(datetime.datetime.today(), data["eventTime"]) - change
             remind_times.append(new_time.time())
 
         # In each block, set recurring reminders event notifs to job queue
+        # In JobQueue, reminders have names like: CHATID:REMINDER/EVENT:EVENTID
+        # Individual reminders for events cannot be altered.
         match freq:
             case "DAILY":
-                self.app.job_queue.run_daily(self.r_event_now, data["eventTime"], days=(0, 1, 2, 3, 4, 5, 6), data=data)
+                self.app.job_queue.run_daily(self.r_event_now, data["eventTime"], days=(0, 1, 2, 3, 4, 5, 6), name=f"{data['chat_id']}:REMINDER:{data['eventId']}", data=data)
                 for r_time in remind_times:
-                    self.app.job_queue.run_daily(self.r_event_reminder, r_time, days=(0, 1, 2, 3, 4, 5, 6), data=data)
+                    self.app.job_queue.run_daily(self.r_event_reminder, r_time, days=(0, 1, 2, 3, 4, 5, 6), name=f"{data['chat_id']}:REMINDER:{data['eventId']}", data=data)
 
             case "WEEKLY":
                 days = {"Sunday": 0,
@@ -246,15 +263,17 @@ class PersistentBot:
                         "Friday": 5,
                         "Saturday": 6}
 
-                self.app.job_queue.run_daily(self.r_event_now, data['eventTime'], days=(days[day],), data=data)
+                self.app.job_queue.run_daily(self.r_event_now, data['eventTime'], days=(days[day],), name=f"{data['chat_id']}:REMINDER:{data['eventId']}",  data=data)
                 for r_time in remind_times:
-                    self.app.job_queue.run_daily(self.r_event_reminder, r_time, days=(days[day],), data=data)
+                    self.app.job_queue.run_daily(self.r_event_reminder, r_time, days=(days[day],), name=f"{data['chat_id']}:REMINDER:{data['eventId']}", data=data)
 
             case "MONTHLY":
                 day = int(day)
-                self.app.job_queue.run_monthly(self.r_event_now, data['eventTime'], day=day, data=data)
+                self.app.job_queue.run_monthly(self.r_event_now, data['eventTime'], day=day, name=f"{data['chat_id']}:REMINDER:{data['eventId']}",data=data)
                 for r_time in remind_times:
-                    self.app.job_queue.run_monthly(self.r_event_reminder, r_time, day=day, data=data)
+                    self.app.job_queue.run_monthly(self.r_event_reminder, r_time, day=day, name=f"{data['chat_id']}:REMINDER:{data['eventId']}", data=data)
+
+        await self.app.bot.send_message(data['chat_id'], "Event has been added to your calendar!")
 
     async def r_event_now(self, context: ContextTypes.DEFAULT_TYPE):
         data = context.job.data
@@ -263,8 +282,6 @@ class PersistentBot:
     async def r_event_reminder(self, context: ContextTypes.DEFAULT_TYPE):
         data = context.job.data
         await self.app.bot.send_message(data['chat_id'], f"{data['eventName']} at {data['eventTime']}")
-    def r_event_set_reminder(self, data: dict, minutes: int = 0, hours: int=0, days: int = 0):
-        pass
 
     def get_nr_events_between(self, chat_id, start: datetime.date, end: datetime.date):
         return NonRecurringEvent.select().where(
