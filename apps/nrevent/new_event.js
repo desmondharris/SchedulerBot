@@ -20,6 +20,7 @@ document.getElementById('eventForm').onsubmit = function(event) {
             reminders: reminders
         };
         window.Telegram.WebApp.sendData(JSON.stringify(data));
+        window.Telegram.WebApp.close();
     };
 
 };
