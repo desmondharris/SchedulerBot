@@ -111,7 +111,7 @@ def catch_all(func: Callable) -> Callable:
         try:
             return func(*args, **kwargs)
         except Exception as e:
-            logging.error(f"Error in {func.__name__}: {e}", exc_info=True)
+            logging.error(f"Error in {func.__name__}: {e}\nArgs: {dict(zip(range(len(args)), args))}\nKwargs: {dict(zip(range(len(kwargs)), kwargs))}", exc_info=True)
     return wrapper
 
 
@@ -262,13 +262,20 @@ class PersistentBot:
         """
         This method recreates a Persistent Bot object from the database after a crash or other error.
         @return: None
+                reminders- list of strings like ["5-MINUTES", "1-HOURS"]
+        chat_id- telegram id
+        eventDate- datetime object
+        eventTime- time object
         """
         # connect to database
 
-        # add all users from table
-
         # add all events from tables to bot job queue
-
+        events = NonRecurringEvent.select()
+        for e in events:
+            data = {}
+            data["eventId"] = e.event_id
+            data["eventDate"] = datetime.date
+            pass
         # add all to-do items from table to job queue
 
         # send all users a message with a list of their events and to do items to verify none were lost
@@ -324,7 +331,8 @@ class PersistentBot:
         evnt = NonRecurringEvent.get(NonRecurringEvent.event_id == data["eventId"])
         evnt.delete_instance()
         await self.app.bot.send_message(data['chat_id'], f"Event {data['eventName']} is happening now!")
-        NonRecurringEvent.delete().where(NonRecurringEvent)
+        # not sure what this was there for, maybe ill need it later?
+        # NonRecurringEvent.delete().where(NonRecurringEvent)
 
     def event_set_reminder(self, data, minutes: int=0,  hours: int=0, days: int=0):
         # Use timedelta to avoid dictionary mess
@@ -338,34 +346,46 @@ class PersistentBot:
                                         f"REMINDER: {context.job.data['eventName']} at {context.job.data['eventTime']}, {context.job.data['eventDate']}")
 
     async def create_nr_event(self, data: dict):
-        # Add new event to database
-        evnt = NonRecurringEvent.create(user=data["chat_id"], name=data["eventName"], date=data["eventDate"],
-                                        time=data['eventTime'])
-        if evnt.event_id is not None:
-            data["eventId"] = evnt.event_id
-            logger.info(f"Created event {data['eventId']} in database")
-        else:
-            logger.error(f"Failed to create event with params {data}")
+        '''
+        @param data: dictionary
+        reminders- list of strings like ["5-MINUTES", "1-HOURS"]
+        chat_id- telegram id
+        eventDate- datetime object
+        eventTime- time object
+
+        @return: None
+        '''
+        # if event id exists, we are building from the database and don't need to add a new event
+        if "eventId" not in data:
+            # Add new event to database
+            evnt = NonRecurringEvent.create(user=data["chat_id"], name=data["eventName"], date=data["eventDate"],
+                                            time=data['eventTime'])
+            if evnt.event_id is not None:
+                data["eventId"] = evnt.event_id
+                logger.info(f"Created event {data['eventId']} in database")
+            else:
+                logger.error(f"Failed to create event with params {data}")
         # Add job to job queue with formatted name
         self.app.job_queue.run_once(self.event_now, datetime.datetime.combine(data["eventDate"], data["eventTime"]), name=f"{data['chat_id']}:REMINDER:{data['eventId']}", data=data)
-
-        for reminder in data["reminders"]:
-            num, period = reminder.split("-")
-            num = int(num)
-            match period:
-                case "MINUTES":
-                    self.event_set_reminder(data,  minutes=num)
-                case "HOURS":
-                    self.event_set_reminder(data,  hours=num)
-                case "DAYS":
-                    self.event_set_reminder(data,  days=num)
-                case "WEEKS":
-                    self.event_set_reminder(data, 
-                                            days=int(7 * num))
-                    # If this case executes, web app has been altered or malfunctioned
-                case _:
-                    logger.error(f"CRTICAL ERROR: Received bad webapp data. {period} is not a valid time unit.")
-                    return
+        if "reminders" in data:
+            # TODO: Include reminders in db somehow
+            for reminder in data["reminders"]:
+                num, period = reminder.split("-")
+                num = int(num)
+                match period:
+                    case "MINUTES":
+                        self.event_set_reminder(data,  minutes=num)
+                    case "HOURS":
+                        self.event_set_reminder(data,  hours=num)
+                    case "DAYS":
+                        self.event_set_reminder(data,  days=num)
+                    case "WEEKS":
+                        self.event_set_reminder(data,
+                                                days=int(7 * num))
+                        # If this case executes, web app has been altered or malfunctioned
+                    case _:
+                        logger.error(f"CRTICAL ERROR: Received bad webapp data. {period} is not a valid time unit.")
+                        return
 
         await self.app.bot.send_message(data['chat_id'], "Event has been added to your calendar!")
 
