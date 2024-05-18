@@ -36,7 +36,6 @@ import functools
 
 from src.Keys import Key
 from src.BotSQL import User, NonRecurringEvent, RecurringEvent, ToDo, mysql_db
-from pydevd_pycharm import settrace
 
 
 # logging setup
