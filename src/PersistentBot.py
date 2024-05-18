@@ -35,7 +35,7 @@ from peewee import DoesNotExist
 import functools
 
 from src.Keys import Key
-from src.BotSQL import User, NonRecurringEvent, RecurringEvent, ToDo
+from src.BotSQL import User, NonRecurringEvent, RecurringEvent, ToDo, mysql_db
 from pydevd_pycharm import settrace
 
 # Connect to pychharm debug server
@@ -107,7 +107,6 @@ def catch_all(func: Callable) -> Callable:
     def wrapper(*args, **kwargs):
         # sys.execute("python PersistentBot.py --rebuild") something like this
         # sys.exit()
-        print("caught error")
         try:
             return func(*args, **kwargs)
         except Exception as e:
@@ -284,6 +283,7 @@ class PersistentBot:
 
     @catch_all
     def start_bot(self):
+        mysql_db.connect()
         logger.info("Bot started polling")
         self.app.run_polling()
 
