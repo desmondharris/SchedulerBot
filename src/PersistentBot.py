@@ -38,14 +38,6 @@ from src.Keys import Key
 from src.BotSQL import User, NonRecurringEvent, RecurringEvent, ToDo, mysql_db
 from pydevd_pycharm import settrace
 
-# Connect to pychharm debug server
-if __name__ == "__main__":
-    try:
-        DEBUG = int(sys.argv[1])
-    except IndexError:
-        DEBUG = 0
-    if DEBUG:
-        settrace('localhost', port=51858, stdoutToServer=True, stderrToServer=True)
 
 # logging setup
 logging.basicConfig(level=logging.ERROR,
