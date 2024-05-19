@@ -31,7 +31,7 @@ import pytz
 import json
 import logging
 from typing import Callable
-from peewee import DoesNotExist
+from peewee import DoesNotExist, OperationalError
 import functools
 
 from src.Keys import Key
@@ -78,6 +78,13 @@ def log_continue(func: Callable) -> Callable:
     def wrapper(*args, **kwargs):
         try:
             return func(*args, **kwargs)
+        except OperationalError as e:
+            for _ in range(10):
+                try:
+                    mysql_db.connect()
+                    break
+                except:
+                    continue
         except Exception as e:
             logger.error(f"Error in executing {func.__name__}: {e}\nArgs: {dict(zip(range(len(args)), args))}\nKwargs: {dict(zip(range(len(kwargs)), kwargs))}")
             raise
