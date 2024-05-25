@@ -7,7 +7,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 mysql_db = peewee.MySQLDatabase(Key.MYSQL_DB, user=Key.MYSQL_USER, password=Key.MYSQL_PASSWORD,
-                                host=Key.MYSQL_HOST, port=3306)
+                                host=Key.MYSQL_HOST, port=Key.MYSQL_PORT)
 
 
 class BaseModel(peewee.Model):
@@ -46,4 +46,4 @@ class ToDo(BaseModel):
 
 if __name__ == "__main__":
     mysql_db.connect()
-    mysql_db.create_tables([ToDo])
+    mysql_db.create_tables([User, RecurringEvent, NonRecurringEvent, ToDo])
