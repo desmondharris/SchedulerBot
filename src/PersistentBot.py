@@ -149,7 +149,7 @@ async def todo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
         # If user passed new item for to do list, add it to DB
         # Otherwise, display current to do list
-        cmd, item = update.message.text.split()
+        cmd, item = update.message.text.split(maxsplit=1)
         td = ToDo.create(user=update.message.chat_id, text=item)
         if td.id:
             logger.info(f"Created todo list item {td.id} for user {update.message.chat_id}")
