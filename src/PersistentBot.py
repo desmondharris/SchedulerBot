@@ -66,7 +66,22 @@ if __name__ == "__main__":
 
 
 async def clean_todo(update: Update):
-    pass
+    query = ToDo.delete().where(ToDo.done==True and ToDo.user == update.message.from_user.id)
+    query.execute()
+    items = ToDo.select().where(ToDo.user == update.message.chat_id)
+    kb = []
+    [kb.append([InlineKeyboardButton(f"{CHECK_CHAR if item.done else UNCHECK_CHAR} {item.text}",
+                                     callback_data=f"toggle__{item.id}")]) for item in items]
+    kb.append([InlineKeyboardButton("Click here to remove finished items", callback_data="CLEAR")])
+    kb = InlineKeyboardMarkup(kb)
+    await update.bot.edit_message_text(
+        chat_id=query.message.chat_id,
+        message_id=query.message.message_id,
+        text=query.message.text,
+        reply_markup=kb
+    )
+
+
 
 
 def log_continue(func: Callable) -> Callable:
@@ -120,17 +135,21 @@ async def todo_toggle(update: Update, context) -> None:
     @param context: telegram api
     """
     query = update.callback_query
+
     if query.data == "CLEAR":
-        await clean_todo(update)
-    id = query.data.replace("toggle__", '')
-    todo = ToDo.get(ToDo.id == id)
-    tog = not todo.done
-    ToDo.update(done=tog).where(ToDo.id == id).execute()
+        sql_query = ToDo.delete().where(ToDo.done == True, ToDo.user == query.message.chat_id)
+        sql_query.execute()
+    else:
+        id = query.data.replace("toggle__", '')
+        todo = ToDo.get(ToDo.id == id)
+        tog = not todo.done
+        ToDo.update(done=tog).where(ToDo.id == id).execute()
 
     items = ToDo.select().where(ToDo.user == query.message.chat_id)
     kb = []
     [kb.append([InlineKeyboardButton(f"{CHECK_CHAR if item.done else UNCHECK_CHAR} {item.text}",
                                 callback_data=f"toggle__{item.id}")]) for item in items]
+    kb.append([InlineKeyboardButton("Click here to remove finished items", callback_data="CLEAR")])
     kb = InlineKeyboardMarkup(kb)
 
     await context.bot.edit_message_text(
@@ -297,7 +316,6 @@ class PersistentBot:
             await self.app.bot.send_message(update.message.chat_id, text="hello")
 
     """
-    TODO: Change all these dicts to use common variable names.
     name: event name
     date: event date only
     time: event time only
