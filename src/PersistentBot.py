@@ -23,6 +23,7 @@ from telegram.ext import (
     Defaults,
     MessageHandler,
     filters,
+    CallbackContext,
 )
 
 import sys
@@ -33,6 +34,7 @@ import logging
 from typing import Callable
 from peewee import DoesNotExist, OperationalError
 import functools
+from apscheduler.jobstores.base import JobLookupError
 
 from src.Keys import Key
 from src.BotSQL import User, NonRecurringEvent, RecurringEvent, ToDo, mysql_db
@@ -82,30 +84,6 @@ async def clean_todo(update: Update):
     )
 
 
-
-
-def log_continue(func: Callable) -> Callable:
-    """
-    @rtype: Callable
-    @param func: decorated function
-    This is a decorator function used to log random errors that aren't explicitly accounted for.
-    """
-    def wrapper(*args, **kwargs):
-        try:
-            return func(*args, **kwargs)
-        except OperationalError as e:
-            for _ in range(10):
-                try:
-                    mysql_db.connect()
-                    break
-                except:
-                    continue
-        except Exception as e:
-            logger.error(f"Error in executing {func.__name__}: {e}\nArgs: {dict(zip(range(len(args)), args))}\nKwargs: {dict(zip(range(len(kwargs)), kwargs))}")
-            raise
-    return wrapper
-
-
 def catch_all(func: Callable) -> Callable:
     # TODO: add a rebuild cl option/flag
     """
@@ -126,6 +104,42 @@ def catch_all(func: Callable) -> Callable:
             logging.error(f"Error in {func.__name__}: {e}\nArgs: {dict(zip(range(len(args)), args))}\nKwargs: {dict(zip(range(len(kwargs)), kwargs))}", exc_info=True)
     return wrapper
 
+async def send_event_list(update: Update, context: CallbackContext):
+    """Send a list of events with inline buttons to delete them."""
+    user_id = update.message.chat_id
+    events = NonRecurringEvent.select().where(NonRecurringEvent.user == user_id)
+    if not events:
+        await update.message.reply_text("You have no events.")
+        return
+
+    kb = [
+        [InlineKeyboardButton(f"{event.name} at {event.date} {event.time}", callback_data=f"delete_event__{event.event_id}")]
+        for event in events
+    ]
+    kb = InlineKeyboardMarkup(kb)
+    await update.message.reply_text("Select an event to delete:", reply_markup=kb)
+
+
+# Callback query handler to delete event
+async def delete_event_callback(update: Update, context: CallbackContext):
+    """Handle the callback query to delete an event."""
+    query = update.callback_query
+    event_id = query.data
+    event_id = event_id.replace("delete_event__", "")
+    try:
+        event = NonRecurringEvent.get(NonRecurringEvent.event_id == event_id)
+        job_name = f"{event.user}:REMINDER:{event.event_id}"
+        try:
+            context.job_queue.scheduler.remove_job(job_name)
+        except JobLookupError:
+            logger.error(f"Job {job_name} not found in Job Queue")
+
+        event.delete_instance()
+        await query.answer(text="Event deleted.")
+        await query.edit_message_text(text=f"Deleted event: {event.name}")
+    except DoesNotExist:
+        await query.answer(text="Event not found.")
+        await query.edit_message_text(text="Event not found.")
 
 async def todo_toggle(update: Update, context) -> None:
     """
@@ -258,6 +272,7 @@ class PersistentBot:
         self.app.add_handler(CommandHandler("removezip", self.remove_zip))
         self.app.add_handler(CommandHandler("todo", todo))
         self.app.add_handler(CommandHandler("cancel", self.cancel))
+        self.app.add_handler(CommandHandler("deleteevent", send_event_list))
 
         # Add conversation handler to get zip code
         zip_handler = ConversationHandler(
@@ -270,11 +285,12 @@ class PersistentBot:
         self.app.add_handler(zip_handler)
 
         # Add to do list handler
-        self.app.add_handler(CallbackQueryHandler(todo_toggle))
+        self.app.add_handler(CallbackQueryHandler(todo_toggle, pattern="toggle__"))
+        self.app.add_handler(CallbackQueryHandler(delete_event_callback, pattern="delete_event__"))
 
         logger.debug("Bot object created")
 
-    def build_from_old(self) -> None:
+    async def build_from_old(self) -> None:
         """
         This method recreates a Persistent Bot object from the database after a crash or other error.
         @return: None
@@ -282,21 +298,32 @@ class PersistentBot:
         chat_id- telegram id
         eventDate- datetime object
         eventTime- time object
+
         """
         # connect to database
 
         # add all events from tables to bot job queue
         events = NonRecurringEvent.select()
+        reminders = ["5-MINUTES", "2-HOURS", "1-DAYS"]
         for e in events:
             data = {}
             data["eventId"] = e.event_id
-            data["eventDate"] = datetime.date
-            pass
-        # add all to-do items from table to job queue
-
-        # send all users a message with a list of their events and to do items to verify none were lost
-
-        pass
+            data["eventName"] = e.name
+            data["chat_id"] = e.user.id
+            data["eventDate"] = e.date
+            data["eventTime"] = e.time
+            self.app.job_queue.run_once(self.event_now, datetime.datetime.combine(e.date, e.time),
+                                        name=f"{e.user}:REMINDER:{e.event_id}", data=data)
+            for r in reminders:
+                num, period = r.split("-")
+                num = int(num)
+                match period:
+                    case "MINUTES":
+                        self.event_set_reminder(data, minutes=num)
+                    case "HOURS":
+                        self.event_set_reminder(data, hours=num)
+                    case "DAYS":
+                        self.event_set_reminder(data, days=num)
 
     @catch_all
     def start_bot(self):
@@ -306,6 +333,7 @@ class PersistentBot:
 
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Check if user is in database
+        await self.build_from_old()
         user, created = User.get_or_create(id=update.message.chat_id)
         if created:
             await self.app.bot.send_message(update.message.chat_id, text="Welcome to the bot! To get weather data, "
@@ -347,8 +375,6 @@ class PersistentBot:
         evnt = NonRecurringEvent.get(NonRecurringEvent.event_id == data["eventId"])
         evnt.delete_instance()
         await self.app.bot.send_message(data['chat_id'], f"Event {data['eventName']} is happening now!")
-        # not sure what this was there for, maybe ill need it later?
-        # NonRecurringEvent.delete().where(NonRecurringEvent)
 
     def event_set_reminder(self, data, minutes: int=0,  hours: int=0, days: int=0):
         # Use timedelta to avoid dictionary mess
@@ -407,7 +433,12 @@ class PersistentBot:
 
     async def create_r_event(self, data: dict):
         # Get a string of format DAILY, WEEKLY:MONDAY, MONTHLY:15
-        freq, day = data['freq'].split('~')
+        try:
+            freq, day = data['freq'].split('~')
+        except ValueError as e:
+            freq = data['freq']
+            day = -1
+
         freq = freq.upper()
 
         # Add event to database
