@@ -23,10 +23,14 @@ class User(BaseModel):
 
 class NonRecurringEvent(BaseModel):
     event_id = peewee.AutoField()
+    reminders = peewee.CharField(255)
     user = peewee.ForeignKeyField(User, backref='non_recurring_events')
     name = peewee.CharField(255)
     date = peewee.DateField()
     time = peewee.TimeField()
+
+
+
 
 
 class RecurringEvent(BaseModel):
