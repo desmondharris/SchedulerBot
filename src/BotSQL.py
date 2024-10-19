@@ -1,13 +1,18 @@
 import peewee
-from src.Keys import Key
-from datetime import datetime as dt
-from datetime import time, date
+import os, sys
 import logging
+from dotenv import load_dotenv
 
+load_dotenv()
 logger = logging.getLogger(__name__)
-
-mysql_db = peewee.MySQLDatabase(Key.MYSQL_DB, user=Key.MYSQL_USER, password=Key.MYSQL_PASSWORD,
-                                host=Key.MYSQL_HOST, port=Key.MYSQL_PORT)
+if "pytest" in sys.modules:
+    print("PYTEST DETENCTED")
+    mysql_db = peewee.MySQLDatabase(os.getenv("MYSQLT_DB"), user=os.getenv("MYSQLT_USER"),
+                            password=os.getenv("MYSQLT_PASSWORD"),
+                            host=os.getenv("MYSQLT_HOST"), port=int(os.getenv("MYSQLT_PORT")))
+else:
+    mysql_db = peewee.MySQLDatabase(os.getenv("MYSQL_DB"), user=os.getenv("MYSQL_USER"), password=os.getenv("MYSQL_PASSWORD"),
+                                    host=os.getenv("MYSQL_HOST"), port=int(os.getenv("MYSQL_PORT")))
 
 
 class BaseModel(peewee.Model):
@@ -16,7 +21,7 @@ class BaseModel(peewee.Model):
 
 
 # Define tables
-class User(BaseModel):
+class Chat(BaseModel):
     id = peewee.IntegerField(primary_key=True)
     zip = peewee.IntegerField()
 
@@ -24,7 +29,7 @@ class User(BaseModel):
 class NonRecurringEvent(BaseModel):
     event_id = peewee.AutoField()
     reminders = peewee.CharField(255)
-    user = peewee.ForeignKeyField(User, backref='non_recurring_events')
+    user = peewee.ForeignKeyField(Chat, backref='non_recurring_events')
     name = peewee.CharField(255)
     date = peewee.DateField()
     time = peewee.TimeField()
@@ -35,7 +40,7 @@ class NonRecurringEvent(BaseModel):
 
 class RecurringEvent(BaseModel):
     event_id = peewee.AutoField()
-    user = peewee.ForeignKeyField(User, backref='recurring_events')
+    user = peewee.ForeignKeyField(Chat, backref='recurring_events')
     name = peewee.CharField(255)
     recurrence = peewee.CharField(255)
     time = peewee.CharField(5)
@@ -43,11 +48,11 @@ class RecurringEvent(BaseModel):
 
 class ToDo(BaseModel):
     id = peewee.AutoField()
-    user = peewee.ForeignKeyField(User, backref='to_do_items')
+    user = peewee.ForeignKeyField(Chat, backref='to_do_items')
     text = peewee.CharField(255)
     done = peewee.BooleanField()
 
 
 if __name__ == "__main__":
     mysql_db.connect()
-    mysql_db.create_tables([User, RecurringEvent, NonRecurringEvent, ToDo])
+    mysql_db.create_tables([Chat])
