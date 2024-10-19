@@ -1,0 +1,2 @@
+FIRST_TIME_GREETING = "Welcome to the bot!"
+START_HELP_MESSAGE = "REPLACEME Help Message"
