@@ -37,7 +37,7 @@ import functools
 from apscheduler.jobstores.base import JobLookupError
 
 from src.Keys import Key
-from src.BotSQL import User, NonRecurringEvent, RecurringEvent, ToDo, mysql_db
+from src.BotSQL import Chat, NonRecurringEvent, RecurringEvent, ToDo, mysql_db
 
 
 # logging setup
@@ -226,7 +226,7 @@ async def get_zip(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return GETZIP
 
     # Add zip code to database
-    User.update(zip=zip_code).where(User.id == update.message.chat_id).execute()
+    Chat.update(zip=zip_code).where(Chat.id == update.message.chat_id).execute()
     await update.message.reply_text("Your zip code has been added!")
     return ConversationHandler.END
 
@@ -252,7 +252,7 @@ def get_nr_events_between(chat_id, start: datetime.date, end: datetime.date):
 
 def user_in_db(chat_id: int):
     try:
-        User.get_by_id(chat_id)
+        Chat.get_by_id(chat_id)
         return True
     except DoesNotExist:
         return False
@@ -334,7 +334,7 @@ class PersistentBot:
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Check if user is in database
         await self.build_from_old()
-        user, created = User.get_or_create(id=update.message.chat_id)
+        user, created = Chat.get_or_create(id=update.message.chat_id)
         if created:
             await self.app.bot.send_message(update.message.chat_id, text="Welcome to the bot! To get weather data, "
                                                                          "I need to know your ZIP code. To enter it, "
@@ -516,7 +516,7 @@ class PersistentBot:
         await self.app.bot.send_message(update.message.chat_id, text=self.daily_message(update.message.chat_id))
 
     async def remove_zip(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        User.update(zip=0).where(User.id == update.message.chat_id).execute()
+        Chat.update(zip=0).where(Chat.id == update.message.chat_id).execute()
         await self.app.bot.send_message(update.message.chat_id, text="Your ZIP code has been removed from your profile.")
 
 
