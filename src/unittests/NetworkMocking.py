@@ -2,11 +2,18 @@ import asyncio
 import json
 import sys
 import time
+import logging
 
 from telegram.request import BaseRequest
 from telegram import Message, Chat
 
 
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.DEBUG
+)
+
+
+logger = logging.getLogger(__name__)
 
 class NetworkMocking(BaseRequest):
     def __init__(self):
@@ -25,6 +32,7 @@ class NetworkMocking(BaseRequest):
 
     async def do_request(self, url, method, request_data=None, read_timeout=None, write_timeout=None,
                               connect_timeout=None, pool_timeout=None):
+        logger.debug(f"Making {method} REQUEST TO {url}")
         resp = {}
         result = {}
         endpoint = url.rsplit('/', 1)[-1]
@@ -40,6 +48,8 @@ class NetworkMocking(BaseRequest):
             result["text"] = mock_sent_msg.text
             result["chat_id"] = mock_sent_msg.chat.id
             result["date"] = mock_sent_msg.date
+            if "reply_markup" in params:
+                result["reply_markup"] = params["reply_markup"]
 
 
         resp["result"] = result
