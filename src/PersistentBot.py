@@ -37,7 +37,7 @@ import functools
 from apscheduler.jobstores.base import JobLookupError
 
 from src.Keys import Key
-from src.BotSQL import User, NonRecurringEvent, RecurringEvent, ToDo, mysql_db
+from src.BotSQL import Chat, NonRecurringEvent, RecurringEvent, ToDo, mysql_db
 
 
 # logging setup
@@ -89,7 +89,7 @@ def catch_all(func: Callable) -> Callable:
     """
     This is a decorator used to catch all errors that occur during bot polling. It stops the program from exiting,
     creates a new bot object, and builds from the database. This function should only be called if an unexpected error
-    fails to be caught.
+    fails to be caught by python-telegram-bot's error handling, which should never happen.
     @param func: PersistentBot.start
     @return: Wrapper function
     """
@@ -226,7 +226,7 @@ async def get_zip(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return GETZIP
 
     # Add zip code to database
-    User.update(zip=zip_code).where(User.id == update.message.chat_id).execute()
+    Chat.update(zip=zip_code).where(Chat.id == update.message.chat_id).execute()
     await update.message.reply_text("Your zip code has been added!")
     return ConversationHandler.END
 
@@ -252,7 +252,7 @@ def get_nr_events_between(chat_id, start: datetime.date, end: datetime.date):
 
 def user_in_db(chat_id: int):
     try:
-        User.get_by_id(chat_id)
+        Chat.get_by_id(chat_id)
         return True
     except DoesNotExist:
         return False
@@ -334,7 +334,7 @@ class PersistentBot:
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Check if user is in database
         await self.build_from_old()
-        user, created = User.get_or_create(id=update.message.chat_id)
+        user, created = Chat.get_or_create(id=update.message.chat_id)
         if created:
             await self.app.bot.send_message(update.message.chat_id, text="Welcome to the bot! To get weather data, "
                                                                          "I need to know your ZIP code. To enter it, "
@@ -376,16 +376,18 @@ class PersistentBot:
         evnt.delete_instance()
         await self.app.bot.send_message(data['chat_id'], f"Event {data['eventName']} is happening now!")
 
-    def event_set_reminder(self, data, minutes: int=0,  hours: int=0, days: int=0):
+    def event_set_reminder(self, evnt, minutes: int=0, hours: int=0, days: int=0):
         # Use timedelta to avoid dictionary mess
-        reminder_time = datetime.datetime.combine(data["eventDate"], data["eventTime"]) - datetime.timedelta(days=days, hours=hours, minutes=minutes)
+        reminder_time = datetime.datetime.combine(evnt.date, evnt.time) - datetime.timedelta(days=days, hours=hours,
+                                                                                             minutes=minutes)
         if reminder_time < datetime.datetime.now():
             return
-        self.app.job_queue.run_once(self.event_send_reminder, reminder_time, name=f"{data['chat_id']}:REMINDER:{data['eventId']}", data=data)
+        self.app.job_queue.run_once(self.event_send_reminder, reminder_time,
+                                    name=f"{evnt.user.id}:REMINDER:{evnt.event_id}", data=evnt)
 
     async def event_send_reminder(self, context: ContextTypes.DEFAULT_TYPE):
-        await self.app.bot.send_message(context.job.data['chat_id'],
-                                        f"REMINDER: {context.job.data['eventName']} at {context.job.data['eventTime']}, {context.job.data['eventDate']}")
+        msg = f"REMINDER: {context.job.data.name} at {context.job.data.time}, {context.job.data.date}"
+        await self.app.bot.send_message(context.job.data['chat_id'], msg)
 
     async def create_nr_event(self, data: dict):
         '''
@@ -400,15 +402,23 @@ class PersistentBot:
         # if event id exists, we are building from the database and don't need to add a new event
         if "eventId" not in data:
             # Add new event to database
+
+            # convert list into a string for database storage
+            reminders_str = ""
+            for i in data["reminders"]:
+                reminders_str += i
+
+
             evnt = NonRecurringEvent.create(user=data["chat_id"], name=data["eventName"], date=data["eventDate"],
-                                            time=data['eventTime'])
+                                            time=data['eventTime'], reminders=reminders_str)
             if evnt.event_id is not None:
-                data["eventId"] = evnt.event_id
-                logger.info(f"Created event {data['eventId']} in database")
+                logger.info(f"Created event {evnt.event_id} in database")
             else:
                 logger.error(f"Failed to create event with params {data}")
+                return
         # Add job to job queue with formatted name
-        self.app.job_queue.run_once(self.event_now, datetime.datetime.combine(data["eventDate"], data["eventTime"]), name=f"{data['chat_id']}:REMINDER:{data['eventId']}", data=data)
+        self.app.job_queue.run_once(self.event_now, datetime.datetime.combine(evnt.date, evnt.time),
+                                    name=f"{evnt.user.id}:REMINDER:{evnt.event_id}", data=data)
         if "reminders" in data:
             # TODO: Include reminders in db somehow
             for reminder in data["reminders"]:
@@ -416,20 +426,19 @@ class PersistentBot:
                 num = int(num)
                 match period:
                     case "MINUTES":
-                        self.event_set_reminder(data,  minutes=num)
+                        self.event_set_reminder(evnt,  minutes=num)
                     case "HOURS":
-                        self.event_set_reminder(data,  hours=num)
+                        self.event_set_reminder(evnt,  hours=num)
                     case "DAYS":
-                        self.event_set_reminder(data,  days=num)
+                        self.event_set_reminder(evnt,  days=num)
                     case "WEEKS":
-                        self.event_set_reminder(data,
-                                                days=int(7 * num))
-                        # If this case executes, web app has been altered or malfunctioned
+                        self.event_set_reminder(evnt, days=int(7 * num))
+                    # If this case executes, web app has been altered or malfunctioned
                     case _:
                         logger.error(f"CRTICAL ERROR: Received bad webapp data. {period} is not a valid time unit.")
-                        return
+                        raise RuntimeError("Invalid webapp data received, check logs")
 
-        await self.app.bot.send_message(data['chat_id'], "Event has been added to your calendar!")
+        await self.app.bot.send_message(evnt.user.id, "Event has been added to your calendar!")
 
     async def create_r_event(self, data: dict):
         # Get a string of format DAILY, WEEKLY:MONDAY, MONTHLY:15
@@ -507,7 +516,7 @@ class PersistentBot:
         await self.app.bot.send_message(update.message.chat_id, text=self.daily_message(update.message.chat_id))
 
     async def remove_zip(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        User.update(zip=0).where(User.id == update.message.chat_id).execute()
+        Chat.update(zip=0).where(Chat.id == update.message.chat_id).execute()
         await self.app.bot.send_message(update.message.chat_id, text="Your ZIP code has been removed from your profile.")
 
 
