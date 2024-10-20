@@ -5,6 +5,8 @@ import asyncio
 
 from dotenv import load_dotenv
 
+import peewee
+
 import telegram
 from telegram import ForceReply, Update, Message, MessageEntity, Bot
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters, ConversationHandler
@@ -27,7 +29,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Message:
     @return: none
     """
     chat_id = update.effective_chat.id
+
     chat_model, created = Chat.get_or_create(id=chat_id)
+    # get or create can cause integrity error if chat with id already exists, but exact params were not given. edge case
+    # https://stackoverflow.com/questions/19362085/get-or-create-throws-integrity-error
+
+    logger.debug(chat_model, created)
     if created:
         return await update.get_bot().send_message(update.message.chat_id, FIRST_TIME_GREETING)
     else:
@@ -47,11 +54,13 @@ async def onetime_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
               "november", "december"]
     days = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
 
-    if info.split()[0].lower() in months:
+    if info.split()[1].lower() in months:
         pass
-    elif info.split()[0].lower() in days:
-        weekday, time, event_name = info.split(maxsplit=2)
+    elif info.split()[1].lower() in days:
+        _, weekday, time, event_name = info.split(maxsplit=3)
         logger.debug((weekday, time, event_name))
+        res = await update.message.reply_text(WEEKDAY_INLINE_TEXT, reply_markup=WEEKDAY_INLINE_KB)
+        return res
     else:
         logger.warning(f"User {update.effective_user} in chat {update.effective_chat} attempted invalid ote")
         await update.message.reply_text("Please input a one-time event in one of the proper formats!")
@@ -68,17 +77,12 @@ bot replies with checklist of options
 def main() -> None:
     application = Application.builder().token(os.getenv("TELEGRAM_API_KEY")).build()
     application.add_handler(CommandHandler("start", start))
-    # onetime_event_handler = ConversationHandler(
-    #     entry_points=[CommandHandler("ot", onetime_start)],
-    # )
+    application.add_handler(CommandHandler("ot", onetime_start))
+    application.run_polling()
 
-    # application.update_queue.put_nowait(Update(update_id=456546, message=Message(message_id=5645623,
-    #                                                                              text="/start",
-    #                                                                              date=datetime.datetime.today(),
-    #                                                                              chat=telegram.Chat(55555555,
-    #
-    #                                                                                                 "PRIVATE"))))
 
+if __name__ == "__main__":
+    main()
 
 
 
