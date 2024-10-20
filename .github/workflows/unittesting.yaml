@@ -1,0 +1,55 @@
+name: Python Tests
+
+on:
+  push:
+    branches: [ main, botRefactor ]
+  pull_request:
+    branches: [ main, botRefactor ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      mysql:
+        image: mysql:5.7
+        env:
+          MYSQL_ROOT_PASSWORD: rootpassword
+          MYSQL_DATABASE: test_db
+        ports:
+          - 3306
+        options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=3
+
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Set up Python 3.9
+      uses: actions/setup-python@v2
+      with:
+        python-version: 3.9
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Set up test database
+      env:
+        MYSQLT_DB: test_db
+        MYSQLT_USER: root
+        MYSQLT_PASSWORD: rootpassword
+        MYSQLT_HOST: 127.0.0.1
+        MYSQLT_PORT: ${{ job.services.mysql.ports[3306] }}
+      run: |
+        mysql -h 127.0.0.1 -P $MYSQLT_PORT -u root -prootpassword -e "CREATE DATABASE IF NOT EXISTS $MYSQLT_DB;"
+
+    - name: Run tests
+      env:
+        MYSQLT_DB: test_db
+        MYSQLT_USER: root
+        MYSQLT_PASSWORD: rootpassword
+        MYSQLT_HOST: 127.0.0.1
+        MYSQLT_PORT: ${{ job.services.mysql.ports[3306] }}
+        TELEGRAM_API_KEY: ${{ secrets.TELEGRAM_API_KEY }}
+      run: |
+        pytest src/unittests
