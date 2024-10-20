@@ -55,4 +55,4 @@ class ToDo(BaseModel):
 
 if __name__ == "__main__":
     mysql_db.connect()
-    mysql_db.create_tables([Chat])
+    mysql_db.close()
