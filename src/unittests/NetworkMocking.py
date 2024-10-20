@@ -57,6 +57,7 @@ class NetworkMocking(BaseRequest):
         enc_json = json_str.encode('utf-8')
         return 280, enc_json
 
+
     async def initialize(self):
         pass
 
