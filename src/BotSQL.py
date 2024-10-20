@@ -53,6 +53,9 @@ class ToDo(BaseModel):
     done = peewee.BooleanField()
 
 
+if "pytest" in sys.modules:
+    mysql_db.create_tables([Chat, NonRecurringEvent, RecurringEvent, ToDo])
+
 if __name__ == "__main__":
     mysql_db.connect()
     mysql_db.close()
