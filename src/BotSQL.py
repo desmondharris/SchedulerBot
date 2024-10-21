@@ -29,6 +29,7 @@ class Chat(BaseModel):
 class NonRecurringEvent(BaseModel):
     event_id = peewee.AutoField()
     reminders = peewee.CharField(255)
+    reminder_open = peewee.BooleanField()
     user = peewee.ForeignKeyField(Chat, backref='non_recurring_events')
     name = peewee.CharField(255)
     date = peewee.DateField()
