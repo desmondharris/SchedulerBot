@@ -58,4 +58,4 @@ jobs:
         MYSQLT_PORT: ${{ job.services.mysql.ports[3306] }}
         TELEGRAM_API_KEY: ${{ secrets.TELEGRAM_API_KEY }}
       run: |
-        pytest src/unittests
+        pytest unittests
