@@ -51,6 +51,9 @@ class NetworkMocking(BaseRequest):
             if "reply_markup" in params:
                 result["reply_markup"] = params["reply_markup"]
 
+        if endpoint == "answerCallbackQuery":
+            result = True
+
 
         resp["result"] = result
         json_str = json.dumps(resp)
