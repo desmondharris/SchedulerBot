@@ -1,20 +1,18 @@
 import os
-from functools import wraps
 import datetime
-from pprint import pprint as prp
 
 import pytest
 import peewee
-from peewee import MySQLDatabase, Update
+from peewee import MySQLDatabase
 from dotenv import load_dotenv
 
 import telegram as tg
-from telegram import Update, Message
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram import Message
+from telegram.ext import Application, CommandHandler
 
-from ..BotSQL import Chat, NonRecurringEvent, RecurringEvent, ToDo
-from ..BotRefactor import start, onetime_start
-from ..MessageOptions import *
+from src.BotSQL import Chat, NonRecurringEvent, RecurringEvent, ToDo
+from src.BotRefactor import start, onetime_start
+from src.MessageOptions import *
 from . import NetworkMocking
 
 load_dotenv()
@@ -73,7 +71,8 @@ def message_id():
 # set up bot that doesn't check for updates
 @pytest.fixture(scope='session')
 def app():
-    application = Application.builder().token(os.getenv("TELEGRAM_API_KEY")).updater(None).request(NetworkMocking.NetworkMocking()).build()
+    application = Application.builder().token(os.getenv("TELEGRAM_API_KEY")).updater(None).request(
+        NetworkMocking.NetworkMocking()).build()
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("ot", onetime_start))
     yield application
