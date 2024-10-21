@@ -11,7 +11,7 @@ from telegram import Message
 from telegram.ext import Application, CommandHandler
 
 from src.BotSQL import Chat, NonRecurringEvent, RecurringEvent, ToDo
-from src.BotRefactor import start, onetime_start
+from src.BotRefactor import start, onetime_start, add_handlers
 from src.MessageOptions import *
 from . import NetworkMocking
 
@@ -25,6 +25,10 @@ TEST_DB.connect()
 
 
 TEST_USER_ID = 123456
+
+user_user_obj = tg.User(first_name='Desmond', id=1710495555, is_bot=False, language_code='en', last_name='Harris',
+                     username='desmondktharris')
+bot_user_obj = tg.User(first_name='Scheduler', id=6446614126, is_bot=True, username='dkhschedule_bot')
 
 """
 IMPORTANT
@@ -63,9 +67,22 @@ class MessageIdClass:
         return self.count
 
 
+
 @pytest.fixture(scope='session')
 def message_id():
     return MessageIdClass()
+
+
+
+def message_factory(message_id, text="", **kwargs):
+    """
+    @param message_id: fixture
+    @param text: message text(defaults to blank)
+    @param kwargs: other attributes for ptb to handle(entities, etc)
+    @return:
+    """
+    return Message(message_id=message_id.inc(), text=text, chat=tg.Chat(TEST_USER_ID, "PRIVATE"), date=datetime.datetime.today(), **kwargs)
+
 
 
 # set up bot that doesn't check for updates
@@ -73,21 +90,20 @@ def message_id():
 def app():
     application = Application.builder().token(os.getenv("TELEGRAM_API_KEY")).updater(None).request(
         NetworkMocking.NetworkMocking()).build()
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("ot", onetime_start))
+    add_handlers(application)
     yield application
 
 
 
 class TestBot:
+    from_user_chat = tg.Chat(TEST_USER_ID, "PRIVATE")
+
     @pytest.mark.asyncio
     async def test_start(self, app, update_id, message_id):
         await app.initialize()
-        temp_chat = tg.Chat(TEST_USER_ID, "PRIVATE")
-        m = Message(message_id=message_id.inc(), text="/start", chat=temp_chat, date=datetime.datetime.today(),
-                    entities=[tg.MessageEntity(length=6, offset=0, type=tg.MessageEntity.BOT_COMMAND)])
+        ent = tg.MessageEntity(length=6, offset=0, type=tg.MessageEntity.BOT_COMMAND)
+        m = message_factory(message_id, "/start", entities=[ent])
         m.set_bot(app.bot)
-
         ud = tg.Update(update_id.inc(), message=m)
         ud.set_bot(app.bot)
 
@@ -109,16 +125,6 @@ class TestBot:
     # test conversation handler for messages of form "<weekday> <24hrtimestamp> <event name>
     @pytest.mark.asyncio
     async def test_ot_event(self, app, update_id, message_id):
-        temp_chat = tg.Chat(TEST_USER_ID, "PRIVATE")
-        weekday_int = {
-            "monday": 0,
-            "tuesday": 1,
-            "wednesday": 2,
-            "thursday": 3,
-            "friday": 4,
-            "saturday": 5,
-            "sunday": 6
-        }
         int_weekday = {
             0: "monday",
             1: "tuesday",
@@ -132,8 +138,8 @@ class TestBot:
         day = day % 6
         day = int_weekday[day]
         msg_txt = f"/ot {day} 1700 Test Non Reccuring Event"
-        m = Message(message_id=message_id.inc(), text=msg_txt, chat=temp_chat, date=datetime.datetime.today(),
-                    entities=[tg.MessageEntity(length=3, offset=0, type=tg.MessageEntity.BOT_COMMAND)])
+        ent = tg.MessageEntity(length=3, offset=0, type=tg.MessageEntity.BOT_COMMAND)
+        m = message_factory(message_id, msg_txt, entities=[ent])
         ud = tg.Update(update_id.inc(), message=m)
         ud.set_bot(app.bot)
         m.set_bot(app.bot)
@@ -141,17 +147,47 @@ class TestBot:
         assert type(res) == Message, f"Expected start to return Message, got {type(res)}"
         assert res.text == WEEKDAY_INLINE_TEXT, f"Expected {WEEKDAY_INLINE_TEXT}, got {res.text}"
         assert res.reply_markup == WEEKDAY_INLINE_KB, "Improper InlineKeyboard"
+        try:
+            created_event = NonRecurringEvent.get(NonRecurringEvent.user == TEST_USER_ID)
+        except peewee.DoesNotExist:
+            pytest.fail("NonRecurringEvent not added to database")
+
+
+
+    # Test all types of reminders.
+    params = [("5-minutes", "Set 5 minute reminder."), ("15-minutes", "Set 15 minute reminder."),
+              ("30-minutes", "Set 30 minute reminder."), ("1-hours", "Set 1 hour reminder."),
+              ("2-hours", "Set 2 hour reminder."), ("4-hours", "Set 4 hour reminder.")]
+    # test response when user presses a callback button
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("callback_data, expected_reply", params)
+    async def test_ot_event_callback(self, app, update_id, message_id, callback_data, expected_reply):
+        # we use message_id to get the id for any object we pass to an update.
+        m = message_factory(message_id, from_user=bot_user_obj, reply_markup=WEEKDAY_INLINE_KB, text="Reminders?")
+        cbq = tg.CallbackQuery(id=str(message_id.inc()), data=callback_data,
+                               message=m, from_user=user_user_obj, chat_instance="7849395941589147207")
+
+        ud = tg.Update(update_id.inc(), callback_query=cbq)
+        # set our bot as the bot for all of our mock objects
+        [tg_element.set_bot(app.bot) for tg_element in [m, cbq, ud]]
+        res = await app.process_update(ud)
+
+        assert res.text == expected_reply, f"Expected {expected_reply}, got {res}"
+
+
+
 
 
     def test_clean_db(self):
-        Chat.delete().execute()
         NonRecurringEvent.delete().execute()
         RecurringEvent.delete().execute()
         ToDo.delete().execute()
+        Chat.delete().execute()
         assert Chat.select().count() == 0, "Chat table not cleared"
         assert NonRecurringEvent.select().count() == 0, "NonRecurringEvent table not cleared"
         assert RecurringEvent.select().count() == 0, "RecurringEvent table not cleared"
         assert ToDo.select().count() == 0, "ToDo table not cleared"
+
 
 
 """
