@@ -8,5 +8,6 @@ WEEKDAY_INLINE_KB = InlineKeyboardMarkup([
      InlineKeyboardButton("30 Minutes", callback_data="30-minutes")],
     [InlineKeyboardButton("1 Hour", callback_data="1-hours"),
         InlineKeyboardButton("2 Hours", callback_data="2-hours"),
-        InlineKeyboardButton("1 day", callback_data="4-hours")],
+        InlineKeyboardButton("1 day", callback_data="4-hours"),
+     InlineKeyboardButton("Done", callback_data="close-reminder")],
 ])
