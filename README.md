@@ -1,0 +1,2 @@
+SchedulerBot is a Telegram bot that provides basic functionality to keep track of events and tasks. It is implemented
+using the [python-telegram-bot](https://github.com/python-telegram-bot/python-telegram-bot) library.
